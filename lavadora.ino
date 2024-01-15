@@ -1,11 +1,3 @@
-// version 1.1 de la lavadora con arduino
-// la valvula de entrada de agua o val1 estara conectada al pin3
-// el giro del motor 1 o giro1 en el sentido contrario a la manecillas el reloj, estara conectado al pin 4
-// el giro del motor 2 o giro2 en el sentido de las manecillas el reloj, estara conectado al pin 5
-// la bomba de agua estara conectada junto del el bloqueo del tanque ya que solo dispongo de 4 reles, en el pin 6
-// el modulo de reles se activa con os pines en bajo, o LOW, o 0 logico.
-// este codigo fue creado por Santiago Eusse Toro.
-
 #include <Wire.h>
 #include <LiquidCrystal_I2C.h>
 #include "pitches.h"
@@ -22,141 +14,56 @@ String ciclos[6 ] = {"LLENANDO",
 bool led = true;
 unsigned long hora = 0;
 const int intervalo = 1000;
-
 int contador = 0;
 int segundos = 0;
 int minuto = 0;
-
 String ciclo;    // VARIABLE PARA LA ACTUALIZACION DEL CICLO ENLA PANTALL
 int paso = 0;    // REGISTRO DE PASO PARA EL LAVADO Y EL CICLO DE ACELERACION DEL TANQUE
+int sttone = 0; //TONO INICIAL
 
-int sttone = 0;
+
 int val1 =  8;    // VALVULA DE ENTRADA DE AGUA
 int giro = 5;    // GIRO DEL MOTOR
-int vel1 = 6;    // VELOCIDAD DE LAVADO
-int vel2 = 7;    // VELOCIDAD DE CENTRIFUGADO
+int vel1 = 6;    // VELOCIDAD DE MOTOR
+int vel2 = 7;    // VELOCIDAD DE MOTOR
 int motor = 4;    // ENCENDER MOTOR
 int bomba = 9;    // BOMBA DE AGUA
 int bloqueo = 10;  // BLOQUEO DE PUERTA
 int alarma = 11;   // ALARMA BUZZER PARA FIN DE LAVADO 
 
+int tiempoTotal = 0;
+int tiempoStart = 0;
+int tiempoEnd = 0;
+int faseActual = 0;
+
+struct FaseLavado {
+  String funcion;
+  int tiempo;
+};
+
+//FASES DE LAVADO, FUNCION - TIEMPO en minutos
+FaseLavado fases[] = {
+  {"llenado", 5},
+  {"lavado", 20},
+  {"vaciado", 2},
+  {"llenado", 5},
+  {"lavado", 10},
+  {"vaciado", 2},
+  {"centrifugar", 5},
+  {"llenado", 5},
+  {"lavado", 8},
+  {"vaciado", 2},
+  {"centrifugar", 10},
+};
 
 // si la direccion 0x27 no funciona, prueba con 0x28 ó con 0x3F
 LiquidCrystal_I2C lcd(0x27, 16, 2);
-
-int melody[] = {
-  NOTE_E4, NOTE_G4, NOTE_A4, NOTE_A4, REST,
-  NOTE_A4, NOTE_B4, NOTE_C5, NOTE_C5, REST,
-  NOTE_C5, NOTE_D5, NOTE_B4, NOTE_B4, REST,
-  NOTE_A4, NOTE_G4, NOTE_A4, REST,
-  
-  NOTE_E4, NOTE_G4, NOTE_A4, NOTE_A4, REST,
-  NOTE_A4, NOTE_B4, NOTE_C5, NOTE_C5, REST,
-  NOTE_C5, NOTE_D5, NOTE_B4, NOTE_B4, REST,
-  NOTE_A4, NOTE_G4, NOTE_A4, REST,
-  
-  NOTE_E4, NOTE_G4, NOTE_A4, NOTE_A4, REST,
-  NOTE_A4, NOTE_C5, NOTE_D5, NOTE_D5, REST,
-  NOTE_D5, NOTE_E5, NOTE_F5, NOTE_F5, REST,
-  NOTE_E5, NOTE_D5, NOTE_E5, NOTE_A4, REST,
-  
-  NOTE_A4, NOTE_B4, NOTE_C5, NOTE_C5, REST,
-  NOTE_D5, NOTE_E5, NOTE_A4, REST,
-  NOTE_A4, NOTE_C5, NOTE_B4, NOTE_B4, REST,
-  NOTE_C5, NOTE_A4, NOTE_B4, REST,
-  
-  NOTE_A4, NOTE_A4,
-  //Repeat of first part
-  NOTE_A4, NOTE_B4, NOTE_C5, NOTE_C5, REST,
-  NOTE_C5, NOTE_D5, NOTE_B4, NOTE_B4, REST,
-  NOTE_A4, NOTE_G4, NOTE_A4, REST,
-  
-  NOTE_E4, NOTE_G4, NOTE_A4, NOTE_A4, REST,
-  NOTE_A4, NOTE_B4, NOTE_C5, NOTE_C5, REST,
-  NOTE_C5, NOTE_D5, NOTE_B4, NOTE_B4, REST,
-  NOTE_A4, NOTE_G4, NOTE_A4, REST,
-  
-  NOTE_E4, NOTE_G4, NOTE_A4, NOTE_A4, REST,
-  NOTE_A4, NOTE_C5, NOTE_D5, NOTE_D5, REST,
-  NOTE_D5, NOTE_E5, NOTE_F5, NOTE_F5, REST,
-  NOTE_E5, NOTE_D5, NOTE_E5, NOTE_A4, REST,
-  
-  NOTE_A4, NOTE_B4, NOTE_C5, NOTE_C5, REST,
-  NOTE_D5, NOTE_E5, NOTE_A4, REST,
-  NOTE_A4, NOTE_C5, NOTE_B4, NOTE_B4, REST,
-  NOTE_C5, NOTE_A4, NOTE_B4, REST,
-  //End of Repeat
-  
-  NOTE_E5, REST, REST, NOTE_F5, REST, REST,
-  NOTE_E5, NOTE_E5, REST, NOTE_G5, REST, NOTE_E5, NOTE_D5, REST, REST,
-  NOTE_D5, REST, REST, NOTE_C5, REST, REST,
-  NOTE_B4, NOTE_C5, REST, NOTE_B4, REST, NOTE_A4,
-  
-  NOTE_E5, REST, REST, NOTE_F5, REST, REST,
-  NOTE_E5, NOTE_E5, REST, NOTE_G5, REST, NOTE_E5, NOTE_D5, REST, REST,
-  NOTE_D5, REST, REST, NOTE_C5, REST, REST,
-  NOTE_B4, NOTE_C5, REST, NOTE_B4, REST, NOTE_A4
-};
-
-int durations[] = {
-  8, 8, 4, 8, 8,
-  8, 8, 4, 8, 8,
-  8, 8, 4, 8, 8,
-  8, 8, 4, 8,
-  
-  8, 8, 4, 8, 8,
-  8, 8, 4, 8, 8,
-  8, 8, 4, 8, 8,
-  8, 8, 4, 8,
-  
-  8, 8, 4, 8, 8,
-  8, 8, 4, 8, 8,
-  8, 8, 4, 8, 8,
-  8, 8, 8, 4, 8,
-  
-  8, 8, 4, 8, 8,
-  4, 8, 4, 8,
-  8, 8, 4, 8, 8,
-  8, 8, 4, 4,
-  
-  4, 8,
-  //Repeat of First Part
-  8, 8, 4, 8, 8,
-  8, 8, 4, 8, 8,
-  8, 8, 4, 8,
-  
-  8, 8, 4, 8, 8,
-  8, 8, 4, 8, 8,
-  8, 8, 4, 8, 8,
-  8, 8, 4, 8,
-  
-  8, 8, 4, 8, 8,
-  8, 8, 4, 8, 8,
-  8, 8, 4, 8, 8,
-  8, 8, 8, 4, 8,
-  
-  8, 8, 4, 8, 8,
-  4, 8, 4, 8,
-  8, 8, 4, 8, 8,
-  8, 8, 4, 4,
-  //End of Repeat
-  
-  4, 8, 4, 4, 8, 4,
-  8, 8, 8, 8, 8, 8, 8, 8, 4,
-  4, 8, 4, 4, 8, 4,
-  8, 8, 8, 8, 8, 2,
-  
-  4, 8, 4, 4, 8, 4,
-  8, 8, 8, 8, 8, 8, 8, 8, 4,
-  4, 8, 4, 4, 8, 4,
-  8, 8, 8, 8, 8, 2
-};
 
 //CONFIGURACION DE PINES
 void setup() {
 
   //CONFIGURAMOS LOS PINES DE SALIDA NECESARIOS PARA NUESTRA LAVADORA
-  pinMode(val1, OUTPUT);   // VALVULA UNO O VAL1
+  pinMode(val1, OUTPUT); 
   pinMode(giro, OUTPUT);
   pinMode(vel1, OUTPUT);
   pinMode(vel2, OUTPUT);
@@ -174,20 +81,24 @@ void setup() {
   digitalWrite(vel2, HIGH);
   digitalWrite(motor, HIGH);
   digitalWrite(bomba, HIGH);
-  digitalWrite(bloqueo, LOW);
+  digitalWrite(bloqueo, LOW); //BLOQUEO DE PUERTA
   
   //INICIALIZACION DE LA PANTALLA LCD 16X2
   lcd.init();
   lcd.backlight();
   lcd.setCursor(0, 0);
-  lcd.print("REMOVEDOR DE");
+  lcd.print("LAVADORA");
   lcd.setCursor(3, 1);
-  lcd.print("OLOR A PATA");
+  lcd.print("CLONIX");
   delay(5000);
 
   // PRESENTAMOS NUESTRA PANTALLA INICIAL QUE MOSTRARA EL TIEMPO Y EL ESTADO SE NUESTRA LAVADORA
   PantallaLavado();
-   
+
+  
+  for (int i = 0; i < sizeof(fases) / sizeof(FaseLavado); i++) {
+    tiempoTotal += fases[i].tiempo;
+  }
 }
 
 //FUNCIONES PARA OPTIMIZAR UN POCO EL CODIGO
@@ -203,19 +114,20 @@ void PantallaLavado() {
   lcd.print(minuto);
   lcd.setCursor(11, 1);
   lcd.print(segundos);
-
-  lcd.setCursor(14, 1);
-  lcd.print(paso);
+  //lcd.setCursor(14, 1);
+  //lcd.print(paso);
 }
 
 //FUNCION DE LLENADO
 void llenado() {
   ciclo = ciclos[0];         // ACTUALIZAMOS EL ESTADO EN PANTALLA "LLENANDO"
+  digitalWrite(bomba, HIGH); // APAGAMOS LA BOMBA DE DESAGOTE
   digitalWrite(val1, LOW);   // ENCENDEMOS LA VALVULA PARA QUE PUEDA ENTRAR AGUA
   
 }
 void apagarLlenado() {
   digitalWrite(val1, HIGH);   // ENCENDEMOS LA VALVULA PARA QUE PUEDA ENTRAR AGUA
+  digitalWrite(bomba, HIGH);
 }
 
 //FUNCION DE LAVADO
@@ -225,13 +137,14 @@ void lavado() {
     digitalWrite(vel1, HIGH);
     digitalWrite(vel2, HIGH);
     digitalWrite(motor, HIGH); 
+    digitalWrite(bomba, HIGH);
     
   } else if (paso == 1) {               //PASO DE LAVADO 1  CICLO DE MOTOR APAGADO
      digitalWrite(motor, HIGH); 
      digitalWrite(giro, HIGH);
   }
   else if (paso == 2) {        //PASO DE LAVADO 2  CICLO DE GIRO EN EL SENTIDO CONTRARIO A LAS MANECILLAS DEL RELOJ
-         digitalWrite(giro, HIGH);
+     digitalWrite(giro, HIGH);
      digitalWrite(motor, LOW); 
   }
   else if (paso == 3) {        //PASO DE LAVADO 3  CICLO DE MOTOR APAGADO
@@ -261,10 +174,11 @@ void vaciado() {
 void centrifugar() {       //FUNCION DE CENTRIFUGADO
   ciclo = ciclos[4];
   digitalWrite(val1, HIGH);
-  digitalWrite(giro, HIGH); //DEFINIR
-  digitalWrite(vel1, LOW);
-  digitalWrite(bomba, LOW);
-  digitalWrite(vel2, LOW);
+  digitalWrite(giro, HIGH); //SENTIDO DE GIRO EN CENTRIFUGADO , EL CENTRIFUGADO FUNCIONA BIEN CON 1 SENTIDO NO FUNCIONA DE LA MISMA MANERA EN LOS DOS
+  // ACTIVAMOS LOS 2 RELES DE CAMBIOI DE VELOCDIAD
+  digitalWrite(vel1, LOW); 
+  digitalWrite(vel2, LOW); 
+  digitalWrite(bomba, LOW); //ACTIVAMOS LA BOMBA DE DESAGOTE
   digitalWrite(motor, LOW);
 }
 
@@ -279,33 +193,30 @@ void apagar() {
   digitalWrite(bloqueo, HIGH);
 }
 
-
+//PLAY PIRATAS DEL CARIBE
 void buzzerEnd(){
-    int size = sizeof(durations) / sizeof(int);
-
-  for (int note = 0; note < size; note++) {
-    //to calculate the note duration, take one second divided by the note type.
-    //e.g. quarter note = 1000 / 4, eighth note = 1000/8, etc.
-    int duration = 1000 / durations[note];
-    tone(alarma, melody[note], duration);
-
-    //to distinguish the notes, set a minimum time between them.
-    //the note's duration + 30% seems to work well:
-    int pauseBetweenNotes = duration * 1.30;
-    delay(pauseBetweenNotes);
-
-    //stop the tone playing:
-    noTone(alarma);
-  }
+    tone(alarma, NOTE_A5, 100);
+    delay(600);
+    noTone(alarma);    
+        tone(alarma, NOTE_A5, 100);
+    delay(600);
+    noTone(alarma);    
+        tone(alarma, NOTE_A5, 100);
+    delay(600);
+    noTone(alarma);    
+        tone(alarma, NOTE_A5, 100);
+    delay(600);
+    noTone(alarma);    
+        tone(alarma, NOTE_A5, 100);
+    delay(600);
+    noTone(alarma);    
 }
 
+//TONO INICIO
 void startTone(){
     tone(alarma, NOTE_A5, 200);
-   
-    
-     delay(1000);
-       noTone(alarma);
-      
+    delay(1000);
+    noTone(alarma);    
 }
 
 void loop() {
@@ -329,77 +240,35 @@ void loop() {
     PantallaLavado();
   }
 
-
-    
   if(sttone == 0){
      startTone();
      sttone = 1;
   }
 
-   ///////////////////////////////////////// LLENADO INICIAL DEL TANQUE
-  if ( minuto < 3 ) {
-     llenado();
-     lavado();
-  }
-  ///////////////////////////////////////////// PRIMER CICLO DE LAVADO
+  tiempoEnd = tiempoStart + fases[faseActual].tiempo;
 
-  if (minuto >= 3 && minuto < 23 ) {
-   digitalWrite(val1, HIGH); 
-    lavado();
+    if (minuto >= tiempoStart && minuto < tiempoEnd) {
+      // Ejecutar la función correspondiente
+      if (fases[faseActual].funcion == "llenado") {
+        lavado();
+        llenado();
+      } else if (fases[faseActual].funcion == "lavado") {
+        apagarLlenado();
+        lavado();
+      } else if (fases[faseActual].funcion == "vaciado") {
+        vaciado();
+      } else if (fases[faseActual].funcion == "centrifugar") {
+        centrifugar();
+      }
+ }
+  
+  
+   if (minuto >= tiempoEnd) {
+         faseActual = faseActual + 1;
+       tiempoStart = tiempoEnd;
   }
-  //////////////////////////////////////////// CILO DE VACIADO
-
-  if (minuto >= 23 && minuto < 25 ) {
-    vaciado();
-  }
-  ///////////////////////////////////////// LLENADO PARA EL CICLO DE ENGUAGUE
-
-  if (minuto >= 25 && minuto < 28 ) {
-    llenado();
-    lavado();
-  }
-  ///////////////////////////////////////////// SEGUNDO CICLO DE LAVADO, ENGUAGUE DE ROPA
-
-  if (minuto >= 28 && minuto < 38 ) {
-     digitalWrite(val1, HIGH); 
-    lavado();
-  }
-  //////////////////////////////////////////// CILO DE VACIADO
-
-  if (minuto >= 38 && minuto < 40 ) {
-    vaciado();
-  }
-  ////////////////////////////////////////////// CENTRIFUGADO
-
-  if (minuto >= 40 && minuto < 47 ) {
-    centrifugar();
-  }
-  //////////////////////////////////////////////////TERCER CILO DE LLENADO
-
-  if (minuto >= 47 && minuto < 50 ) {
-    llenado();
-    lavado();
-  }
-  ///////////////////////////////////////////////////////////////// TERCER CICLO DE LAVADO
-
-  if (minuto >= 50 && minuto < 58 ) {
-     digitalWrite(val1, HIGH); 
-    lavado();
-  }
-  ////////////////////////////////////////////////////////////////// CICLO DE VACIADO PARA SECADO FINAL
-
-  if (minuto >= 58 && minuto < 60 ) {
-    vaciado();
-  }
-  ////////////////////////////////////////////////////////// SEGUNDO CICLO DE CENTRIFUGADO
-
-  if (minuto >= 60 && minuto < 70) {
-    centrifugar();
-  }
-  ////////////////////////////////////////////////////////// CICLO DE ESPERA AQUI SE APAGN TODAS LAS FUNCIONES
-  if (minuto >= 70 && minuto < 73) {
+    if (minuto >= tiempoTotal + 2) {  // Espera 3 minutos adicionales antes de apagar todo y activar la alarma
     apagar();
     buzzerEnd();
   }
-
 }
