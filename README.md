@@ -1,6 +1,7 @@
 # lavadora.ino
 Basado en el código de santiieuse11/lavadora.ino
 
+Tinkercad: https://www.tinkercad.com/things/czTzzZtMkBk-lavadora
 
 Lavadora programada con arduino para cuando se  daña el control original, timer o programador.
 
