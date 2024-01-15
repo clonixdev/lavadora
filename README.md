@@ -20,6 +20,7 @@ Luego use 3 reles más para controlar:
 - 1x bloqueo de puerta
 
 !Importante los reles del motor, valvula y bomba tienen que tener filtros snubber para evitar las cargas inductivas , si no se utilizan se van a producir interferencias haciendo que se pare o reinicie el arduino o que los reles se dañen.
+Para lograr una aislación completa deben usarse dos fuentes de alimentación: 1 para los reles y otra para arduino (reles_conexion)
 
 Luego de montar todo decidi quitar la pantalla para no cortar el frente de la lavadora y no tener filtraciones de agua en caso de derrames.
 Al finalizar reproduce una cancion en el buzzer.
