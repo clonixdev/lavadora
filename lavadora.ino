@@ -30,6 +30,7 @@ int motor = 4;    // ENCENDER MOTOR
 int bomba = 9;    // BOMBA DE AGUA
 int bloqueo = 10;  // BLOQUEO DE PUERTA
 int alarma = 11;   // ALARMA BUZZER PARA FIN DE LAVADO 
+int acelerado = 0;
 
 int tiempoTotal = 0;
 int tiempoStart = 0;
@@ -43,17 +44,19 @@ struct FaseLavado {
 
 //FASES DE LAVADO, FUNCION - TIEMPO en minutos
 FaseLavado fases[] = {
-  {"llenado", 5},
-  {"lavado", 20},
+  {"centrifugar", 1},
+ /* {"llenado", 7},
+  {"lavado", 15},
   {"vaciado", 2},
-  {"llenado", 5},
-  {"lavado", 10},
+  {"llenado", 8},
+  {"lavado", 7},
   {"vaciado", 2},
   {"centrifugar", 5},
   {"llenado", 5},
   {"lavado", 8},
   {"vaciado", 2},
   {"centrifugar", 10},
+  */ 
 };
 
 // si la direccion 0x27 no funciona, prueba con 0x28 ó con 0x3F
@@ -172,13 +175,35 @@ void vaciado() {
 }
 
 void centrifugar() {       //FUNCION DE CENTRIFUGADO
-  ciclo = ciclos[4];
+
   digitalWrite(val1, HIGH);
-  digitalWrite(giro, HIGH); //SENTIDO DE GIRO EN CENTRIFUGADO , EL CENTRIFUGADO FUNCIONA BIEN CON 1 SENTIDO NO FUNCIONA DE LA MISMA MANERA EN LOS DOS
+  digitalWrite(giro, LOW); 
+    ciclo = ciclos[4];
+    
+  if(acelerado = 0){
+  digitalWrite(vel1, HIGH); 
+  digitalWrite(vel2, HIGH); 
+    delay(1000);
+    digitalWrite(motor, LOW);
+
+    delay(2000);
+    
+    digitalWrite(motor, HIGH);
+delay(100);
+      digitalWrite(vel1, LOW); 
+  digitalWrite(vel2, LOW); 
+  
+  delay(100);
+    digitalWrite(motor, LOW);
+    acelerado = 1;
+  }
+  
+  ciclo = ciclos[4];
+//SENTIDO DE GIRO EN CENTRIFUGADO , EL CENTRIFUGADO FUNCIONA BIEN CON 1 SENTIDO NO FUNCIONA DE LA MISMA MANERA EN LOS DOS
   // ACTIVAMOS LOS 2 RELES DE CAMBIOI DE VELOCDIAD
   digitalWrite(vel1, LOW); 
   digitalWrite(vel2, LOW); 
-  digitalWrite(bomba, LOW); //ACTIVAMOS LA BOMBA DE DESAGOTE
+  digitalWrite(bomba, HIGH); //ACTIVAMOS LA BOMBA DE DESAGOTE
   digitalWrite(motor, LOW);
 }
 
@@ -252,6 +277,8 @@ void loop() {
       if (fases[faseActual].funcion == "llenado") {
         lavado();
         llenado();
+      } else if (fases[faseActual].funcion == "llenadosolo") {
+         llenado();
       } else if (fases[faseActual].funcion == "lavado") {
         apagarLlenado();
         lavado();
@@ -265,6 +292,7 @@ void loop() {
   
    if (minuto >= tiempoEnd) {
          faseActual = faseActual + 1;
+         acelerado = 0;
        tiempoStart = tiempoEnd;
   }
     if (minuto >= tiempoTotal + 2) {  // Espera 3 minutos adicionales antes de apagar todo y activar la alarma
