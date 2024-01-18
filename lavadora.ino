@@ -21,7 +21,7 @@ String ciclo;    // VARIABLE PARA LA ACTUALIZACION DEL CICLO ENLA PANTALL
 int paso = 0;    // REGISTRO DE PASO PARA EL LAVADO Y EL CICLO DE ACELERACION DEL TANQUE
 int sttone = 0; //TONO INICIAL
 
-
+int presostato = 3;
 int val1 =  8;    // VALVULA DE ENTRADA DE AGUA
 int giro = 5;    // GIRO DEL MOTOR
 int vel1 = 6;    // VELOCIDAD DE MOTOR
@@ -29,14 +29,17 @@ int vel2 = 7;    // VELOCIDAD DE MOTOR
 int motor = 4;    // ENCENDER MOTOR
 int bomba = 9;    // BOMBA DE AGUA
 int bloqueo = 10;  // BLOQUEO DE PUERTA
-int alarma = 11;   // ALARMA BUZZER PARA FIN DE LAVADO 
+int alarma = 2;   // ALARMA BUZZER PARA FIN DE LAVADO 
 int acelerado = 0;
 
+
+
+int tamborVacio = 0;
 int tiempoTotal = 0;
 int tiempoStart = 0;
 int tiempoEnd = 0;
 int faseActual = 0;
-
+int llenadoError = 0;
 struct FaseLavado {
   String funcion;
   int tiempo;
@@ -44,19 +47,22 @@ struct FaseLavado {
 
 //FASES DE LAVADO, FUNCION - TIEMPO en minutos
 FaseLavado fases[] = {
-  {"centrifugar", 1},
- /* {"llenado", 7},
+  
+  {"llenadosolo",5},
+  {"llenado",5},
   {"lavado", 15},
-  {"vaciado", 2},
-  {"llenado", 8},
-  {"lavado", 7},
-  {"vaciado", 2},
-  {"centrifugar", 5},
+  {"vaciado", 1},
+  {"llenadosolo",5},
   {"llenado", 5},
   {"lavado", 8},
-  {"vaciado", 2},
+  {"vaciado", 1},
+  {"centrifugar", 5},
+  {"llenadosolo",5},
+  {"llenado", 5},
+  {"lavado", 8},
+  {"vaciado", 1},
   {"centrifugar", 10},
-  */ 
+  
 };
 
 // si la direccion 0x27 no funciona, prueba con 0x28 ó con 0x3F
@@ -65,7 +71,9 @@ LiquidCrystal_I2C lcd(0x27, 16, 2);
 //CONFIGURACION DE PINES
 void setup() {
 
+  Serial.begin(9600);
   //CONFIGURAMOS LOS PINES DE SALIDA NECESARIOS PARA NUESTRA LAVADORA
+  pinMode(presostato, INPUT);
   pinMode(val1, OUTPUT); 
   pinMode(giro, OUTPUT);
   pinMode(vel1, OUTPUT);
@@ -124,8 +132,16 @@ void PantallaLavado() {
 //FUNCION DE LLENADO
 void llenado() {
   ciclo = ciclos[0];         // ACTUALIZAMOS EL ESTADO EN PANTALLA "LLENANDO"
-  digitalWrite(bomba, HIGH); // APAGAMOS LA BOMBA DE DESAGOTE
+
+  if(tamborVacio == 1){
+      digitalWrite(bomba, HIGH); // APAGAMOS LA BOMBA DE DESAGOTE
   digitalWrite(val1, LOW);   // ENCENDEMOS LA VALVULA PARA QUE PUEDA ENTRAR AGUA
+  }else{
+
+    digitalWrite(val1, HIGH);   // ENCENDEMOS LA VALVULA PARA QUE PUEDA ENTRAR AGUA
+  digitalWrite(bomba, HIGH);
+  }
+
   
 }
 void apagarLlenado() {
@@ -177,23 +193,21 @@ void vaciado() {
 void centrifugar() {       //FUNCION DE CENTRIFUGADO
 
   digitalWrite(val1, HIGH);
-  digitalWrite(giro, LOW); 
+  digitalWrite(giro, HIGH); //AH
     ciclo = ciclos[4];
     
-  if(acelerado = 0){
-  digitalWrite(vel1, HIGH); 
-  digitalWrite(vel2, HIGH); 
+  if(acelerado == 0){
+    digitalWrite(vel1, HIGH); 
+    digitalWrite(vel2, HIGH); 
     delay(1000);
     digitalWrite(motor, LOW);
-
-    delay(2000);
-    
+    delay(3000);   
     digitalWrite(motor, HIGH);
-delay(100);
-      digitalWrite(vel1, LOW); 
-  digitalWrite(vel2, LOW); 
-  
-  delay(100);
+    delay(10);
+    digitalWrite(vel1, LOW); 
+    digitalWrite(vel2, LOW); 
+    digitalWrite(giro, LOW); //AH
+    delay(300);
     digitalWrite(motor, LOW);
     acelerado = 1;
   }
@@ -233,7 +247,21 @@ void buzzerEnd(){
     delay(600);
     noTone(alarma);    
         tone(alarma, NOTE_A5, 100);
+    delay(5000);
+     tone(alarma, NOTE_A5, 100);
     delay(600);
+    noTone(alarma);    
+        tone(alarma, NOTE_A5, 100);
+    delay(600);
+    noTone(alarma);    
+        tone(alarma, NOTE_A5, 100);
+    delay(600);
+    noTone(alarma);    
+        tone(alarma, NOTE_A5, 100);
+    delay(600);
+    noTone(alarma);    
+        tone(alarma, NOTE_A5, 100);
+    delay(5000);
     noTone(alarma);    
 }
 
@@ -244,8 +272,17 @@ void startTone(){
     noTone(alarma);    
 }
 
+void errorTone(){
+    tone(alarma, NOTE_C5, 500);
+    delay(1000);
+    tone(alarma, NOTE_C5, 500);
+    delay(1000);
+    noTone(alarma);    
+}
+
 void loop() {
 
+  tamborVacio = digitalRead(presostato);
   /////////////////////////////////////////// control tiempos
   if (millis() - hora >= intervalo) {
     hora = millis();
@@ -267,9 +304,15 @@ void loop() {
 
   if(sttone == 0){
      startTone();
+    
      sttone = 1;
   }
 
+  if(llenadoError){
+     apagar();
+    return;
+  }
+  Serial.println(tamborVacio);
   tiempoEnd = tiempoStart + fases[faseActual].tiempo;
 
     if (minuto >= tiempoStart && minuto < tiempoEnd) {
@@ -280,8 +323,19 @@ void loop() {
       } else if (fases[faseActual].funcion == "llenadosolo") {
          llenado();
       } else if (fases[faseActual].funcion == "lavado") {
-        apagarLlenado();
-        lavado();
+
+          apagarLlenado();
+          lavado();
+        /*if(tamborVacio == 1){
+           apagarLlenado();
+          errorTone(); 
+           apagar();
+           llenadoError = 1;
+        }else {
+
+        
+        }*/
+        
       } else if (fases[faseActual].funcion == "vaciado") {
         vaciado();
       } else if (fases[faseActual].funcion == "centrifugar") {
