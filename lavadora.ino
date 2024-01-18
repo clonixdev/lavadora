@@ -47,7 +47,6 @@ struct FaseLavado {
 
 //FASES DE LAVADO, FUNCION - TIEMPO en minutos
 FaseLavado fases[] = {
-  
   {"llenadosolo",5},
   {"llenado",5},
   {"lavado", 15},
@@ -217,7 +216,7 @@ void centrifugar() {       //FUNCION DE CENTRIFUGADO
   // ACTIVAMOS LOS 2 RELES DE CAMBIOI DE VELOCDIAD
   digitalWrite(vel1, LOW); 
   digitalWrite(vel2, LOW); 
-  digitalWrite(bomba, HIGH); //ACTIVAMOS LA BOMBA DE DESAGOTE
+  digitalWrite(bomba, LOW); //ACTIVAMOS LA BOMBA DE DESAGOTE
   digitalWrite(motor, LOW);
 }
 
@@ -306,13 +305,15 @@ void loop() {
      startTone();
     
      sttone = 1;
+      Serial.println("START");
   }
 
   if(llenadoError){
+     Serial.println("ERROR DE LLENADO");
      apagar();
     return;
   }
-  Serial.println(tamborVacio);
+ 
   tiempoEnd = tiempoStart + fases[faseActual].tiempo;
 
     if (minuto >= tiempoStart && minuto < tiempoEnd) {
@@ -322,6 +323,11 @@ void loop() {
         llenado();
       } else if (fases[faseActual].funcion == "llenadosolo") {
          llenado();
+         if(tamborVacio == 0){
+            minuto = minuto + 1;
+            segundos = 0;
+            Serial.println("AVANCE TAMBOR LLENO");
+         }
       } else if (fases[faseActual].funcion == "lavado") {
 
           apagarLlenado();
@@ -342,15 +348,32 @@ void loop() {
         centrifugar();
       }
  }
-  
+
+  if(segundos % 10 == 0){
+      Serial.println("PRESOSTATO");
+       Serial.println(tamborVacio);
+    Serial.println("FASE");
+       Serial.println(fases[faseActual].funcion);
+       Serial.println("MINUTO");
+        Serial.println(minuto);
+  }
   
    if (minuto >= tiempoEnd) {
          faseActual = faseActual + 1;
          acelerado = 0;
        tiempoStart = tiempoEnd;
+              Serial.println("================================================ ");
+
+       Serial.println("PRESOSTATO ");
+       Serial.println(tamborVacio);
+       Serial.println("FASE");
+       Serial.println(fases[faseActual].funcion);
+       Serial.println("MINUTO");
+        Serial.println(minuto);
   }
     if (minuto >= tiempoTotal + 2) {  // Espera 3 minutos adicionales antes de apagar todo y activar la alarma
     apagar();
+     Serial.println("FIN");
     buzzerEnd();
   }
 }
