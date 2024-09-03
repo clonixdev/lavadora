@@ -60,7 +60,7 @@ FaseLavado fases[] = {
   {"llenado", 5},
   {"lavado", 8},
   {"vaciado", 1},
-  {"centrifugar", 10},
+  {"centrifugar", 15},
   
 };
 
