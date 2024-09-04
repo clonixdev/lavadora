@@ -1,6 +1,7 @@
 #include <Wire.h>
 #include <LiquidCrystal_I2C.h>
 #include "pitches.h"
+#include <Servo.h>
 
 // ESTE ARREGLO DETERMINA EN QUE ESTADO SE ENCUENTRA NUESTRA LAVADORA
 String ciclos[6 ] = {"LLENANDO",
@@ -20,6 +21,7 @@ int minuto = 0;
 String ciclo;    // VARIABLE PARA LA ACTUALIZACION DEL CICLO ENLA PANTALL
 int paso = 0;    // REGISTRO DE PASO PARA EL LAVADO Y EL CICLO DE ACELERACION DEL TANQUE
 int sttone = 0; //TONO INICIAL
+Servo jabservo;
 
 int presostato = 3;
 int val1 =  8;    // VALVULA DE ENTRADA DE AGUA
@@ -31,7 +33,11 @@ int bomba = 9;    // BOMBA DE AGUA
 int bloqueo = 10;  // BLOQUEO DE PUERTA
 int alarma = 2;   // ALARMA BUZZER PARA FIN DE LAVADO 
 int acelerado = 0;
+int jabonera = 17;
 
+int jabPosLavado = 0;
+int jabPosSuavizante = 60;
+int jabPosPreLavado = 135;
 
 
 int tamborVacio = 0;
@@ -47,20 +53,27 @@ struct FaseLavado {
 
 //FASES DE LAVADO, FUNCION - TIEMPO en minutos
 FaseLavado fases[] = {
-  {"llenadosolo",5},
+  {"llenadoPreLavado",5},
   {"llenado",5},
   {"lavado", 15},
   {"vaciado", 1},
-  {"llenadosolo",5},
+  {"llenadoPreLavado",5},
   {"llenado", 5},
   {"lavado", 8},
   {"vaciado", 1},
   {"centrifugar", 5},
-  {"llenadosolo",5},
+  {"llenadoLavado",5},
   {"llenado", 5},
   {"lavado", 8},
   {"vaciado", 1},
-  {"centrifugar", 15},
+  {"llenadoSuavizante",5},
+  {"llenado", 5},
+  {"lavado", 8},
+  {"vaciado", 1},
+  {"centrifugar", 10},
+  {"espera", 2},
+  {"vaciado", 1},
+  {"centrifugar", 10},
   
 };
 
@@ -82,6 +95,7 @@ void setup() {
   pinMode(bloqueo, OUTPUT);
   pinMode(alarma, OUTPUT);
   pinMode(LED_BUILTIN, OUTPUT);   // LED INDICATIVO DE TRANCURSO DEL TIEMPO
+  pinMode(jabonera, OUTPUT);
 
   // CONFIGURACION INICIAL DE LOS PINES EN ALTO, YA QUE LOS RELES ENCIENDEN CUANDO PONEMOS EN BAJO EL PIN
   // CONFIGURAMOIS EN ALTO LOS PINES PARA QUE LOS RELES ESTEN APAGADOS AL INICIO DEL LOOP
@@ -93,6 +107,8 @@ void setup() {
   digitalWrite(bomba, HIGH);
   digitalWrite(bloqueo, LOW); //BLOQUEO DE PUERTA
   
+  jabservo.attach(jabonera);
+
   //INICIALIZACION DE LA PANTALLA LCD 16X2
   lcd.init();
   lcd.backlight();
@@ -321,13 +337,25 @@ void loop() {
       if (fases[faseActual].funcion == "llenado") {
         lavado();
         llenado();
-      } else if (fases[faseActual].funcion == "llenadosolo") {
+      } else if (fases[faseActual].funcion == "llenadosolo" || fases[faseActual].funcion == "llenadoPreLavado" || fases[faseActual].funcion == "llenadoLavado" || fases[faseActual].funcion == "llenadoSuavizante") {
          llenado();
          if(tamborVacio == 0){
             minuto = minuto + 1;
             segundos = 0;
             Serial.println("AVANCE TAMBOR LLENO");
          }
+
+         if(fases[faseActual].funcion == "llenadoPreLavado"){
+          jabservo.write(jabPosPreLavado); 
+         } else if(fases[faseActual].funcion == "llenadoLavado"){
+          jabservo.write(jabPosLavado); 
+
+         } else if(fases[faseActual].funcion == "llenadoSuavizante"){
+          jabservo.write(jabPosSuavizante); 
+         } 
+      } else if (fases[faseActual].funcion == "espera") {
+        //sleep
+        apagarLlenado();
       } else if (fases[faseActual].funcion == "lavado") {
 
           apagarLlenado();
