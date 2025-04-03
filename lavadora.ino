@@ -359,6 +359,7 @@ void serialSendStatus()
   String json = "{";
   json += "\"Encendida\": \"" + String(encendida) + "\", ";
   json += "\"Fase\": \"" + String(fases[faseActual].funcion) + "\", ";
+  json += "\"FaseActual\": \"" + String(faseActual) + "\", ";
   json += "\"TamborVacio\": " + String(tamborVacio) + ", ";
   json += "\"Ciclo\": " + String(ciclo) + ", ";
   json += "\"Minuto\": " + String(minuto);
