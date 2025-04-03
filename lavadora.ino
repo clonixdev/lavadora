@@ -1,6 +1,7 @@
 #include <Wire.h>
 #include "pitches.h"
 #include <Servo.h>
+#include <Arduino_JSON.h>
 // #include <SoftwareSerial.h>
 
 // ESTE ARREGLO DETERMINA EN QUE ESTADO SE ENCUENTRA NUESTRA LAVADORA
@@ -374,7 +375,7 @@ void loop()
     serialSendStatus();
   }
 
-
+  delay(1000);
 }
 
 void serialSendStatus() {
@@ -383,6 +384,8 @@ void serialSendStatus() {
   json += "\"Fase\": \"" + String(fases[faseActual].funcion) + "\", ";
   json += "\"TamborVacio\": " + String(tamborVacio) + ", ";
   json += "\"Minuto\": " + String(minuto);
+    json += "\"Segundo\": " + String(segundos);
+      json += "\"Paso\": " + String(paso);
   json += "}";
 
   Serial.println(json);
@@ -472,22 +475,21 @@ void loopLavadora(){
 }
 
 void processCommand(String input) {
-  // Buscar la clave "command"
-  int startIndex = input.indexOf("\"command\":\"");
-  if (startIndex == -1) {
-      Serial.println("{\"error\":\"Invalid JSON\"}");
-      return;
+
+
+  JSONVar myObject = JSON.parse(input);
+
+  // JSON.typeof(jsonVar) can be used to get the type of the variable
+  if (JSON.typeof(myObject) == "undefined") {
+    Serial.println("{\"error\":\"Invalid JSON\"}");
+    return;
   }
 
-  // Obtener el valor del comando
-  startIndex += 10; // Salta '"command":"'
-  int endIndex = input.indexOf("\"", startIndex);
-  if (endIndex == -1) {
-      Serial.println("{\"error\":\"Invalid JSON format\"}");
-      return;
+  if (!myObject.hasOwnProperty("command")) {
+Serial.println("{\"error\":\"Invalid Command\"}");
+    return;
   }
-  
-  String command = input.substring(startIndex, endIndex);
+  String command = myObject["command"];
 
   // Comparar el comando recibido
   if (command == "start") {
