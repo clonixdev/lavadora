@@ -2,6 +2,7 @@
 #include <LiquidCrystal_I2C.h>
 #include "pitches.h"
 #include <Servo.h>
+//#include <SoftwareSerial.h>
 
 // ESTE ARREGLO DETERMINA EN QUE ESTADO SE ENCUENTRA NUESTRA LAVADORA
 String ciclos[6 ] = {"LLENANDO",
@@ -11,7 +12,7 @@ String ciclos[6 ] = {"LLENANDO",
                      "CENTRIFUGANDO",
                      "ESPERA"
                     };
-
+//SoftwareSerial ESP(A5, A4);  // RX, TX (ESP-01)
 bool led = true;
 unsigned long hora = 0;
 const int intervalo = 1000;
@@ -23,7 +24,7 @@ int paso = 0;    // REGISTRO DE PASO PARA EL LAVADO Y EL CICLO DE ACELERACION DE
 int sttone = 0; //TONO INICIAL
 Servo jabservo;
 
-int presostato = 3;
+int presostato = 17;
 int val1 =  8;    // VALVULA DE ENTRADA DE AGUA
 int giro = 5;    // GIRO DEL MOTOR
 int vel1 = 6;    // VELOCIDAD DE MOTOR
@@ -33,11 +34,11 @@ int bomba = 9;    // BOMBA DE AGUA
 int bloqueo = 10;  // BLOQUEO DE PUERTA
 int alarma = 2;   // ALARMA BUZZER PARA FIN DE LAVADO 
 int acelerado = 0;
-int jabonera = 17;
-
-int jabPosLavado = 0;
-int jabPosSuavizante = 60;
-int jabPosPreLavado = 135;
+int jabonera = 3;
+int wifienable = A1;
+int jabPosLavado = 90;
+int jabPosSuavizante = 120;
+int jabPosPreLavado = 180;
 
 
 int tamborVacio = 0;
@@ -53,9 +54,10 @@ struct FaseLavado {
 
 //FASES DE LAVADO, FUNCION - TIEMPO en minutos
 FaseLavado fases[] = {
+  //  {"vaciado", 10},
   {"llenadoPreLavado",5},
   {"llenado",5},
-  {"lavado", 15},
+  {"lavado", 8},
   {"vaciado", 1},
   {"llenadoPreLavado",5},
   {"llenado", 5},
@@ -63,6 +65,10 @@ FaseLavado fases[] = {
   {"vaciado", 1},
   {"centrifugar", 5},
   {"llenadoLavado",5},
+  {"llenado", 5},
+  {"lavado", 8},
+  {"vaciado", 1},
+  {"llenadoSuavizante",5},
   {"llenado", 5},
   {"lavado", 8},
   {"vaciado", 1},
@@ -96,7 +102,7 @@ void setup() {
   pinMode(alarma, OUTPUT);
   pinMode(LED_BUILTIN, OUTPUT);   // LED INDICATIVO DE TRANCURSO DEL TIEMPO
   pinMode(jabonera, OUTPUT);
-
+  pinMode(wifienable, OUTPUT);
   // CONFIGURACION INICIAL DE LOS PINES EN ALTO, YA QUE LOS RELES ENCIENDEN CUANDO PONEMOS EN BAJO EL PIN
   // CONFIGURAMOIS EN ALTO LOS PINES PARA QUE LOS RELES ESTEN APAGADOS AL INICIO DEL LOOP
   digitalWrite(val1, HIGH);
@@ -106,8 +112,9 @@ void setup() {
   digitalWrite(motor, HIGH);
   digitalWrite(bomba, HIGH);
   digitalWrite(bloqueo, LOW); //BLOQUEO DE PUERTA
-  
+  digitalWrite(wifienable, HIGH);
   jabservo.attach(jabonera);
+  jabservo.write(90); 
 
   //INICIALIZACION DE LA PANTALLA LCD 16X2
   lcd.init();
@@ -298,6 +305,8 @@ void errorTone(){
 void loop() {
 
   tamborVacio = digitalRead(presostato);
+
+
   /////////////////////////////////////////// control tiempos
   if (millis() - hora >= intervalo) {
     hora = millis();
@@ -322,7 +331,28 @@ void loop() {
     
      sttone = 1;
       Serial.println("START");
+
+     
   }
+
+    if(false){
+  Serial.println("PRESOSTATO");
+    Serial.println(tamborVacio);
+  jabservo.write(jabPosPreLavado); 
+  delay(5000);
+   startTone();
+    startTone();
+        jabservo.write(jabPosLavado); 
+        delay(5000);
+         startTone();
+          startTone();
+           startTone();
+         jabservo.write(jabPosSuavizante); 
+
+           Serial.println("CALIBRAR POSICION DE JABONERA");
+     apagar();
+    return;
+    }
 
   if(llenadoError){
      Serial.println("ERROR DE LLENADO");
