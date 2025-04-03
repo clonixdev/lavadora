@@ -2,7 +2,6 @@
 #include "pitches.h"
 #include <Servo.h>
 #include <Arduino_JSON.h>
-// #include <SoftwareSerial.h>
 
 // ESTE ARREGLO DETERMINA EN QUE ESTADO SE ENCUENTRA NUESTRA LAVADORA
 String ciclos[6] = {"LLENANDO",
@@ -11,9 +10,10 @@ String ciclos[6] = {"LLENANDO",
                     "ACELERAR",
                     "CENTRIFUGANDO",
                     "ESPERA"};
-// SoftwareSerial ESP(A5, A4);  // RX, TX (ESP-01)
+
 bool led = true;
 bool encendida = false;
+bool hasError = false;
 unsigned long hora = 0;
 const int intervalo = 1000;
 int contador = 0;
@@ -52,36 +52,7 @@ struct FaseLavado
 };
 
 // FASES DE LAVADO, FUNCION - TIEMPO en minutos
-FaseLavado fases[] = {
-    //  {"vaciado", 10},
-    {"llenadoPreLavado", 5},
-    {"llenado", 5},
-    {"lavado", 8},
-    {"vaciado", 1},
-    {"llenadoPreLavado", 5},
-    {"llenado", 5},
-    {"lavado", 8},
-    {"vaciado", 1},
-    {"centrifugar", 5},
-    {"llenadoLavado", 5},
-    {"llenado", 5},
-    {"lavado", 8},
-    {"vaciado", 1},
-    {"llenadoSuavizante", 5},
-    {"llenado", 5},
-    {"lavado", 8},
-    {"vaciado", 1},
-    {"llenadoSuavizante", 5},
-    {"llenado", 5},
-    {"lavado", 8},
-    {"vaciado", 1},
-    {"centrifugar", 10},
-    {"espera", 2},
-    {"vaciado", 1},
-    {"centrifugar", 10},
-
-};
-
+FaseLavado fases[] = {};
 
 // CONFIGURACION DE PINES
 void setup()
@@ -112,16 +83,17 @@ void setup()
   jabservo.attach(jabonera);
   jabservo.write(90);
 
-  delay(5000);
+  delay(2000);
+  powerOnTone();
+}
 
+void calcTiempoTotal()
+{
   for (int i = 0; i < sizeof(fases) / sizeof(FaseLavado); i++)
   {
     tiempoTotal += fases[i].tiempo;
   }
 }
-
-// FUNCIONES PARA OPTIMIZAR UN POCO EL CODIGO
-
 
 // FUNCION DE LLENADO
 void llenado()
@@ -240,7 +212,6 @@ void apagar()
   digitalWrite(bloqueo, HIGH);
 }
 
-// PLAY PIRATAS DEL CARIBE
 void buzzerEnd()
 {
   tone(alarma, NOTE_A5, 100);
@@ -278,6 +249,15 @@ void buzzerEnd()
 void startTone()
 {
   tone(alarma, NOTE_A5, 200);
+  delay(500);
+  tone(alarma, NOTE_B5, 200);
+  delay(500);
+  noTone(alarma);
+}
+
+void powerOnTone()
+{
+  tone(alarma, NOTE_A5, 200);
   delay(1000);
   noTone(alarma);
 }
@@ -291,8 +271,8 @@ void errorTone()
   noTone(alarma);
 }
 
-
-void loopTimer(){
+void loopTimer()
+{
   if (millis() - hora >= intervalo)
   {
     hora = millis();
@@ -314,30 +294,26 @@ void loopTimer(){
   }
 }
 
+void calibrarJabonera()
+{
 
-void calibrarJabonera(){
-  if (false)
-  {
-    Serial.println("PRESOSTATO");
-    Serial.println(tamborVacio);
-    jabservo.write(jabPosPreLavado);
-    delay(5000);
-    startTone();
-    startTone();
-    jabservo.write(jabPosLavado);
-    delay(5000);
-    startTone();
-    startTone();
-    startTone();
-    jabservo.write(jabPosSuavizante);
-
-    Serial.println("CALIBRAR POSICION DE JABONERA");
-    apagar();
-    return;
-  }
+  jabservo.write(jabPosPreLavado);
+  delay(5000);
+  startTone();
+  startTone();
+  jabservo.write(jabPosLavado);
+  delay(5000);
+  startTone();
+  startTone();
+  startTone();
+  jabservo.write(jabPosSuavizante);
+  Serial.println("CALIBRAR POSICION DE JABONERA");
+  apagar();
+  return;
 }
 
-void setJabonera(){
+void setJabonera()
+{
   if (fases[faseActual].funcion == "llenadoPreLavado")
   {
     jabservo.write(jabPosPreLavado);
@@ -359,16 +335,16 @@ void loop()
   /////////////////////////////////////////// control tiempos
   loopTimer();
 
-  
-  if (Serial.available()) {
-      String input = Serial.readStringUntil('\n');
-      processCommand(input);
-  }
-  
-  if(encendida){
-    loopLavadora();
+  if (Serial.available())
+  {
+    String input = Serial.readStringUntil('\n');
+    processCommand(input);
   }
 
+  if (encendida)
+  {
+    loopLavadora();
+  }
 
   if (segundos % 2 == 0)
   {
@@ -378,33 +354,36 @@ void loop()
   delay(1000);
 }
 
-void serialSendStatus() {
+void serialSendStatus()
+{
   String json = "{";
   json += "\"Encendida\": \"" + String(encendida) + "\", ";
   json += "\"Fase\": \"" + String(fases[faseActual].funcion) + "\", ";
   json += "\"TamborVacio\": " + String(tamborVacio) + ", ";
+  json += "\"Ciclo\": " + String(ciclo) + ", ";
   json += "\"Minuto\": " + String(minuto);
-    json += "\"Segundo\": " + String(segundos);
-      json += "\"Paso\": " + String(paso);
+  json += "\"Segundo\": " + String(segundos);
+  json += "\"Paso\": " + String(paso);
   json += "}";
 
   Serial.println(json);
 }
 
-
-void loopLavadora(){
-
+void loopLavadora()
+{
 
   if (sttone == 0)
   {
     startTone();
     sttone = 1;
-    Serial.println("START");
+   // Serial.println("START");
   }
 
   if (llenadoError)
   {
-    Serial.println("ERROR DE LLENADO");
+    errorTone();
+    hasError = true;
+    Serial.println("{\"error\":\"Error de llenado\"}");
     apagar();
     return;
   }
@@ -443,6 +422,7 @@ void loopLavadora(){
       lavado();
       /*if(tamborVacio == 1){
          apagarLlenado();
+         hasError = true;
         errorTone();
          apagar();
          llenadoError = 1;
@@ -469,53 +449,154 @@ void loopLavadora(){
   if (minuto >= tiempoTotal + 2)
   { // Espera 3 minutos adicionales antes de apagar todo y activar la alarma
     apagar();
-    Serial.println("FIN");
     buzzerEnd();
+  }
+
+  if (minuto >= tiempoTotal + 5)
+  {
+    encendida = 0;
   }
 }
 
-void processCommand(String input) {
-
+void processCommand(String input)
+{
 
   JSONVar myObject = JSON.parse(input);
 
   // JSON.typeof(jsonVar) can be used to get the type of the variable
-  if (JSON.typeof(myObject) == "undefined") {
+  if (JSON.typeof(myObject) == "undefined")
+  {
     Serial.println("{\"error\":\"Invalid JSON\"}");
     return;
   }
 
-  if (!myObject.hasOwnProperty("command")) {
-Serial.println("{\"error\":\"Invalid Command\"}");
+  if (!myObject.hasOwnProperty("command"))
+  {
+    Serial.println("{\"error\":\"Invalid Command\"}");
     return;
   }
   String command = myObject["command"];
 
   // Comparar el comando recibido
-  if (command == "start") {
-      startLavadora();
-  } else if (command == "stop") {
-      stopLavadora();
-  } else {
-      Serial.println("{\"error\":\"Unknown command\"}");
+  if (command == "start")
+  {
+
+    String programa = "largo";
+    if (myObject.hasOwnProperty("programa"))
+    {
+      programa = myObject["programa"];
+    }
+
+    startLavadora(programa);
+  }
+  else if (command == "stop")
+  {
+    stopLavadora();
+  }
+  else if (command == "jabon")
+  {
+    calibrarJabonera();
+  }
+  else
+  {
+    Serial.println("{\"error\":\"Unknown command\"}");
   }
 }
 
-void startLavadora(){
+void startLavadora(String programa)
+{
+
+  if (programa == "corto")
+  {
+    setProgramaCorto();
+  }
+  else if (programa == "vaciado")
+  {
+    setProgramaVaciado();
+  }
+  else
+  {
+    setProgramaLargo();
+  }
+
+  calcTiempoTotal();
   resetTimer();
-    sttone = 0;
+  sttone = 0;
   encendida = 1;
-
 }
-void stopLavadora(){
+void stopLavadora()
+{
   encendida = 0;
+  apagar();
 }
 
-void resetTimer(){
+void resetTimer()
+{
 
- contador = 0;
- segundos = 0;
- minuto = 0;
- hora = 0;
- paso = 0;
+  contador = 0;
+  segundos = 0;
+  minuto = 0;
+  hora = 0;
+  paso = 0;
+}
+
+void setProgramaLargo()
+{
+  fases = {
+      //  {"vaciado", 10},
+      {"llenadoPreLavado", 5},
+      {"llenado", 5},
+      {"lavado", 8},
+      {"vaciado", 1},
+      {"llenadoPreLavado", 5},
+      {"llenado", 5},
+      {"lavado", 8},
+      {"vaciado", 1},
+      {"centrifugar", 5},
+      {"llenadoLavado", 5},
+      {"llenado", 5},
+      {"lavado", 8},
+      {"vaciado", 1},
+      {"llenadoSuavizante", 5},
+      {"llenado", 5},
+      {"lavado", 8},
+      {"vaciado", 1},
+      {"llenadoSuavizante", 5},
+      {"llenado", 5},
+      {"lavado", 8},
+      {"vaciado", 1},
+      {"centrifugar", 10},
+      {"espera", 2},
+      {"vaciado", 1},
+      {"centrifugar", 10},
+  };
+}
+
+void setProgramaCorto()
+{
+  fases = {
+      {"llenadoLavado", 5},
+      {"llenado", 5},
+      {"lavado", 8},
+      {"vaciado", 1},
+      {"llenadoSuavizante", 5},
+      {"llenado", 5},
+      {"lavado", 8},
+      {"vaciado", 1},
+      {"llenadoSuavizante", 5},
+      {"llenado", 5},
+      {"lavado", 8},
+      {"vaciado", 1},
+      {"centrifugar", 10},
+      {"espera", 2},
+      {"vaciado", 1},
+      {"centrifugar", 10},
+  };
+}
+
+void setProgramaVaciado()
+{
+  fases = {
+      {"vaciado", 5},
+  };
 }
