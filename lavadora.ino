@@ -1,7 +1,7 @@
 #include <Wire.h>
 #include "pitches.h"
 #include <Servo.h>
-#include <Arduino_JSON.h>
+#include <ArduinoJson.h>
 #include <SoftwareSerial.h>
 
 // ESTE ARREGLO DETERMINA EN QUE ESTADO SE ENCUENTRA NUESTRA LAVADORA
@@ -25,6 +25,7 @@ String ciclo;   // VARIABLE PARA LA ACTUALIZACION DEL CICLO ENLA PANTALL
 int paso = 0;   // REGISTRO DE PASO PARA EL LAVADO Y EL CICLO DE ACELERACION DEL TANQUE
 int sttone = 0; // TONO INICIAL
 Servo jabservo;
+StaticJsonBuffer<200> jsonBuffer;
 
 int presostato = 17;
 int val1 = 8;     // VALVULA DE ENTRADA DE AGUA
@@ -481,33 +482,28 @@ void loopLavadora()
 void processCommand(String input)
 {
 
-  JSONVar myObject = JSON.parse(input.c_str());
+  JsonObject& root = jsonBuffer.parseObject(input.c_str());
 
-
-  // JSON.typeof(jsonVar) can be used to get the type of the variable
-  if (JSON.typeof(myObject) == "undefined")
-  {
+  if(!root.success()) {
     logMessage("{\"error\":\"Invalid JSON code 1\"}");
     logMessage(input);
-   
-    return;
+	  return false;
   }
-
-  if (!myObject.hasOwnProperty("command"))
-  {
-    logMessage("{\"error\":\"Invalid Command\"}");
-    return;
-  }
-  String command = myObject["command"];
+  
+	if (!root.containsKey("command")) {
+	  logMessage("{\"error\":\"Missing 'command' key\"}");
+	  return false;
+	}
+  const char* command = root["command"];
+  
 
   // Comparar el comando recibido
-  if (command == "start")
+  if (strcmp(command, "start") == 0)
   {
 
 
-    if (myObject.hasOwnProperty("programa"))
-    {
-       String programa = myObject["programa"];
+	if (!root.containsKey("programa")) {
+       const char* programa = root["programa"];
        startLavadora(programa);
     }else {
           logMessage("{\"error\":\"Invalid Command Programa no definido\"}");
@@ -516,11 +512,11 @@ void processCommand(String input)
 
     
   }
-  else if (command == "stop")
+  else if (strcmp(command, "stop") == 0)
   {
     stopLavadora();
   }
-  else if (command == "jabon")
+  else if (strcmp(command, "jabon") == 0)
   {
     calibrarJabonera();
   }
@@ -530,14 +526,14 @@ void processCommand(String input)
   }
 }
 
-void startLavadora(String programa)
+void startLavadora(const char* programa)
 {
 
-  if (programa == "corto")
+  if (strcmp(programa, "corto") == 0)
   {
     setProgramaCorto();
   }
-  else if (programa == "vaciado")
+  else if (strcmp(programa, "vaciado") == 0)
   {
     setProgramaVaciado();
   }
