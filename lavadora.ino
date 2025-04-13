@@ -348,6 +348,7 @@ void loop()
   if (segundos % 2 == 0 && segundos != ultimoSegundoEnviado)
   {
     serialSendStatus();
+    ultimoSegundoEnviado = segundos;
   }
 
       processCommand();
@@ -494,7 +495,6 @@ void processCommand()
   
   if (error) {
     logMessage("{\"error\":\"Invalid JSON code 1\"}");
-    logMessage(input);
 	return false;
   }
 
