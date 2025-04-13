@@ -487,9 +487,10 @@ void processCommand()
     return false;  // Ninguna fuente válida (caso muy improbable)
   }
   
+  String input = source->readStringUntil('\n');
   
   JsonDocument doc;
-  DeserializationError error = deserializeJson(doc, *source);
+  DeserializationError error = deserializeJson(doc, input.c_str());
   
   if (error) {
     logMessage("{\"error\":\"Invalid JSON code 1\"}");
