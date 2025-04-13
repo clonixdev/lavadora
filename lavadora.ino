@@ -480,9 +480,8 @@ void loopLavadora()
 
 void processCommand(String input)
 {
-  char inputChars[] = input.c_str();
 
-  JSONVar myObject = JSON.parse(inputChars);
+  JSONVar myObject = JSON.parse(input.c_str());
 
   // JSON.typeof(jsonVar) can be used to get the type of the variable
   if (JSON.typeof(myObject) == "undefined")
