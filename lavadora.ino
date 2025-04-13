@@ -16,6 +16,7 @@ int paso = 0;   // REGISTRO DE PASO PARA EL LAVADO Y EL CICLO DE ACELERACION DEL
 int sttone = 0; // TONO INICIAL
 ServoTimer2 jabservo;
 
+int tiempoTranscurrido = 0; 
 int ultimoSegundoEnviado = -1;
 int presostato = 17;
 int val1 = 8;     // VALVULA DE ENTRADA DE AGUA
@@ -38,14 +39,46 @@ int tiempoStart = 0;
 int tiempoEnd = 0;
 int faseActual = 0;
 int llenadoError = 0;
-struct FaseLavado
-{
-  String funcion;
-  int tiempo;
+int programa = 1;
+
+enum FaseNombreIndex {
+  LLENADO_PRE_LAVADO = 0,
+  LLENADO_LAVADO,
+  LLENADO_SUAVIZANTE,
+  LLENADO,
+  LAVADO,
+  VACIADO,
+  CENTRIFUGAR,
+  ESPERA
 };
 
+struct FaseIndex {
+  uint8_t funcion;
+  uint8_t tiempo; // en minutos
+};
+
+const FaseIndex* fases = nullptr;
+
 // FASES DE LAVADO, FUNCION - TIEMPO en minutos
-FaseLavado fases[] = {};
+const FaseIndex programaLargo[] = {
+  {LLENADO_PRE_LAVADO, 5}, {LLENADO, 5}, {LAVADO, 8}, {VACIADO, 1},
+  {LLENADO_PRE_LAVADO, 5}, {LLENADO, 5}, {LAVADO, 8}, {VACIADO, 1},
+  {CENTRIFUGAR, 5}, {LLENADO_LAVADO, 5}, {LLENADO, 5}, {LAVADO, 8},
+  {VACIADO, 1}, {LLENADO_SUAVIZANTE, 5}, {LLENADO, 5}, {LAVADO, 8},
+  {VACIADO, 1}, {LLENADO_SUAVIZANTE, 5}, {LLENADO, 5}, {LAVADO, 8},
+  {VACIADO, 1}, {CENTRIFUGAR, 10}, {ESPERA, 2}, {VACIADO, 1}, {CENTRIFUGAR, 10}
+};
+
+const FaseIndex programaCorto[] = {
+  {LLENADO_PRE_LAVADO, 5}, {LLENADO, 5}, {LAVADO, 8}, {VACIADO, 1},
+  {LLENADO_SUAVIZANTE, 5}, {LLENADO, 5}, {LAVADO, 8}, {VACIADO, 1},
+  {LLENADO_SUAVIZANTE, 5}, {LLENADO, 5}, {LAVADO, 8}, {VACIADO, 1},
+  {CENTRIFUGAR, 10}, {ESPERA, 2}, {VACIADO, 1}, {CENTRIFUGAR, 10}
+};
+
+const FaseIndex programaVaciado[] = {
+  {VACIADO, 2},
+};
 
 // CONFIGURACION DE PINES
 void setup()
@@ -65,7 +98,7 @@ void setup()
   pinMode(bloqueo, OUTPUT);
   pinMode(alarma, OUTPUT);
   pinMode(LED_BUILTIN, OUTPUT); // LED INDICATIVO DE TRANCURSO DEL TIEMPO
-  pinMode(jabonera, OUTPUT);
+
   // CONFIGURACION INICIAL DE LOS PINES EN ALTO, YA QUE LOS RELES ENCIENDEN CUANDO PONEMOS EN BAJO EL PIN
   // CONFIGURAMOIS EN ALTO LOS PINES PARA QUE LOS RELES ESTEN APAGADOS AL INICIO DEL LOOP
   digitalWrite(val1, HIGH);
@@ -75,17 +108,42 @@ void setup()
   digitalWrite(motor, HIGH);
   digitalWrite(bomba, HIGH);
   digitalWrite(bloqueo, LOW); // BLOQUEO DE PUERTA
+ 
   jabservo.attach(jabonera);
+  
+  powerOnbuzzerPWM();
+}
 
-  delay(2000);
-  powerOnTone();
+void buzzerPWM(int pin, int freq, int duration) {
+  int delayValue = 1000000 / freq / 2; // mitad del ciclo
+  int numCycles = freq * duration / 1000;
+
+  for (int i = 0; i < numCycles; i++) {
+    digitalWrite(pin, HIGH);
+    delayMicroseconds(delayValue);
+    digitalWrite(pin, LOW);
+    delayMicroseconds(delayValue);
+  }
+}
+
+void nobuzzerPWM(int pin) {
+  digitalWrite(pin, LOW); // Asegura que el pin esté en bajo
 }
 
 void calcTiempoTotal()
 {
-  for (int i = 0; i < sizeof(fases) / sizeof(FaseLavado); i++)
-  {
-    tiempoTotal += fases[i].tiempo;
+  const FaseIndex* fasesLoc = getPrograma();
+  int length = 0;
+
+  switch (programa) {
+    case 1: length = sizeof(programaLargo) / sizeof(FaseIndex); break;
+    case 2: length = sizeof(programaCorto) / sizeof(FaseIndex); break;
+    case 3: length = sizeof(programaVaciado) / sizeof(FaseIndex); break;
+  }
+
+  tiempoTotal = 0;
+  for (int i = 0; i < length; i++) {
+    tiempoTotal += fasesLoc[i].tiempo;
   }
 }
 
@@ -207,61 +265,61 @@ void apagar()
 
 void buzzerEnd()
 {
-  tone(alarma, NOTE_A5, 100);
+  buzzerPWM(alarma, NOTE_A5, 100);
   delay(600);
-  noTone(alarma);
-  tone(alarma, NOTE_A5, 100);
+  nobuzzerPWM(alarma);
+  buzzerPWM(alarma, NOTE_A5, 100);
   delay(600);
-  noTone(alarma);
-  tone(alarma, NOTE_A5, 100);
+  nobuzzerPWM(alarma);
+  buzzerPWM(alarma, NOTE_A5, 100);
   delay(600);
-  noTone(alarma);
-  tone(alarma, NOTE_A5, 100);
+  nobuzzerPWM(alarma);
+  buzzerPWM(alarma, NOTE_A5, 100);
   delay(600);
-  noTone(alarma);
-  tone(alarma, NOTE_A5, 100);
+  nobuzzerPWM(alarma);
+  buzzerPWM(alarma, NOTE_A5, 100);
   delay(5000);
-  tone(alarma, NOTE_A5, 100);
+  buzzerPWM(alarma, NOTE_A5, 100);
   delay(600);
-  noTone(alarma);
-  tone(alarma, NOTE_A5, 100);
+  nobuzzerPWM(alarma);
+  buzzerPWM(alarma, NOTE_A5, 100);
   delay(600);
-  noTone(alarma);
-  tone(alarma, NOTE_A5, 100);
+  nobuzzerPWM(alarma);
+  buzzerPWM(alarma, NOTE_A5, 100);
   delay(600);
-  noTone(alarma);
-  tone(alarma, NOTE_A5, 100);
+  nobuzzerPWM(alarma);
+  buzzerPWM(alarma, NOTE_A5, 100);
   delay(600);
-  noTone(alarma);
-  tone(alarma, NOTE_A5, 100);
+  nobuzzerPWM(alarma);
+  buzzerPWM(alarma, NOTE_A5, 100);
   delay(5000);
-  noTone(alarma);
+  nobuzzerPWM(alarma);
 }
 
 // TONO INICIO
-void startTone()
+void startbuzzerPWM()
 {
-  tone(alarma, NOTE_A5, 200);
+  buzzerPWM(alarma, NOTE_A5, 200);
   delay(500);
-  tone(alarma, NOTE_B5, 200);
+  buzzerPWM(alarma, NOTE_B5, 200);
   delay(500);
-  noTone(alarma);
+  nobuzzerPWM(alarma);
 }
 
-void powerOnTone()
+void powerOnbuzzerPWM()
 {
-  tone(alarma, NOTE_A5, 200);
-  delay(1000);
-  noTone(alarma);
+  buzzerPWM(alarma, NOTE_A5, 200);
+  /*delay(1000);
+  nobuzzerPWM(alarma);*/
 }
 
-void errorTone()
+void errorbuzzerPWM()
 {
-  tone(alarma, NOTE_C5, 500);
+  buzzerPWM(alarma, NOTE_C5, 500);
   delay(1000);
-  tone(alarma, NOTE_C5, 500);
+  buzzerPWM(alarma, NOTE_C5, 500);
   delay(1000);
-  noTone(alarma);
+  nobuzzerPWM(alarma);
 }
 
 void loopTimer()
@@ -278,30 +336,36 @@ void loopTimer()
     {
       minuto = minuto + 1;
       segundos = 0;
+      tiempoTranscurrido++; 
     }
     if (contador == 3)
     {
       contador = 0;
       paso = paso + 1;
     }
+    
   }
 }
 
 void calibrarJabonera()
 {
  logMessage("CALIBRAR POSICION DE JABONERA");
-
- Serial.println(jabservo.read());
+  delay(5000);
+  startbuzzerPWM();
+  servoTest();
+  delay(5000);
+  startbuzzerPWM();
+  Serial.println(jabservo.read());
   jabservo.write(jabPosPreLavado);
   delay(5000);
-  startTone();
-  startTone();
+  startbuzzerPWM();
+  startbuzzerPWM();
    Serial.println(jabservo.read());
   jabservo.write(jabPosLavado);
   delay(5000);
-  startTone();
-  startTone();
-  startTone();
+  startbuzzerPWM();
+  startbuzzerPWM();
+  startbuzzerPWM();
    Serial.println(jabservo.read());
   jabservo.write(jabPosSuavizante);
  
@@ -311,20 +375,32 @@ void calibrarJabonera()
 
 void setJabonera()
 {
-  if (fases[faseActual].funcion == "llenadoPreLavado")
+  FaseIndex fase = fases[faseActual];
+
+  
+  if (fase.funcion == LLENADO_PRE_LAVADO)
   {
     jabservo.write(jabPosPreLavado);
   }
-  else if (fases[faseActual].funcion == "llenadoLavado")
+  else if (fase.funcion == LLENADO_LAVADO)
   {
     jabservo.write(jabPosLavado);
   }
-  else if (fases[faseActual].funcion == "llenadoSuavizante")
+  else if (fase.funcion == LLENADO_SUAVIZANTE)
   {
     jabservo.write(jabPosSuavizante);
   }else {
    jabservo.write(jabPosPreLavado); 
   }
+}
+
+void servoTest(){
+   jabservo.write(jabPosPreLavado);
+    delay(1000);  
+  jabservo.write(jabPosLavado);
+    delay(1000);  
+  jabservo.write(jabPosSuavizante);
+   delay(10);  
 }
 void loop()
 {
@@ -345,9 +421,8 @@ void loop()
     ultimoSegundoEnviado = segundos;
   }
 
-      processCommand();
-	  
-	  
+  processCommand();
+	 
 
 }
 
@@ -361,16 +436,31 @@ void serialSendStatus()
 	
 	JsonDocument doc;
 	doc["Encendida"] = encendida;
-    doc["FaseActual"] = faseActual;
+  doc["FaseActual"] = faseActual;
 	doc["TamborVacio"] = tamborVacio;
 	doc["Minuto"] = minuto;
 	doc["Segundo"] = segundos;
 	doc["Paso"] = paso;
-	
-    serializeJson(doc, Serial);
+	doc["TiempoTotal"] = tiempoTotal;
+  int tiempoRestante = tiempoTotal - tiempoTranscurrido;
+  doc["TiempoRestante"] = tiempoRestante;
+  
+  serializeJson(doc, Serial);
 	serializeJson(doc, espSerial);
-    Serial.println();
+  Serial.println();
 	espSerial.println();
+}
+
+const FaseIndex* getPrograma() {
+  if (programa == 1) {
+    return programaLargo;
+  } else if (programa == 2) {
+    return programaCorto;
+  } else if (programa == 3) {
+    return programaVaciado;
+  } else {
+    return programaLargo; // Por defecto
+  }
 }
 
 void loopLavadora()
@@ -378,31 +468,45 @@ void loopLavadora()
 
   if (sttone == 0)
   {
-    startTone();
+    startbuzzerPWM();
     sttone = 1;
   }
 
   if (llenadoError)
   {
-    errorTone();
+    errorbuzzerPWM();
     hasError = true;
     logMessage("{\"error\":\"Error de llenado\"}");
     apagar();
     return;
   }
 
-  tiempoEnd = tiempoStart + fases[faseActual].tiempo;
+  int totalFases = 0;
+  switch (programa) {
+    case 1: totalFases = sizeof(programaLargo) / sizeof(FaseIndex); break;
+    case 2: totalFases = sizeof(programaCorto) / sizeof(FaseIndex); break;
+    case 3: totalFases = sizeof(programaVaciado) / sizeof(FaseIndex); break;
+  }
 
-  if (minuto >= tiempoStart && minuto < tiempoEnd)
-  {
-    // Ejecutar la función correspondiente
-    if (fases[faseActual].funcion == "llenado")
-    {
-      lavado();
+  if (faseActual >= totalFases) {
+    encendida = false;
+    buzzerEnd();
+    apagar();
+    return;
+  }
+  
+  FaseIndex fase = fases[faseActual];
+
+  switch (fase.funcion) {
+    case LLENADO:
+      setJabonera();
       llenado();
-    }
-    else if (fases[faseActual].funcion == "llenadosolo" || fases[faseActual].funcion == "llenadoPreLavado" || fases[faseActual].funcion == "llenadoLavado" || fases[faseActual].funcion == "llenadoSuavizante")
-    {
+      lavado();
+      break;
+    case LLENADO_PRE_LAVADO:
+    case LLENADO_LAVADO:
+    case LLENADO_SUAVIZANTE:
+      setJabonera();
       llenado();
       if (tamborVacio == 0)
       {
@@ -410,72 +514,46 @@ void loopLavadora()
         segundos = 0;
         logMessage("AVANCE TAMBOR LLENO");
       }
-
-      setJabonera();
-    }
-    else if (fases[faseActual].funcion == "espera")
-    {
-      // sleep
-      apagarLlenado();
-    }
-    else if (fases[faseActual].funcion == "lavado")
-    {
-
+      break;
+    case LAVADO:
       apagarLlenado();
       lavado();
-      /*if(tamborVacio == 1){
-         apagarLlenado();
-         hasError = true;
-        errorTone();
-         apagar();
-         llenadoError = 1;
-      }else {
-
-
-      }*/
-    }
-    else if (fases[faseActual].funcion == "vaciado")
-    {
+      break;
+    case VACIADO:
+      apagarLlenado();
       vaciado();
-    }
-    else if (fases[faseActual].funcion == "centrifugar")
-    {
+      break;
+    case CENTRIFUGAR:
+      apagarLlenado();
       centrifugar();
-    }
-  }
-  if (minuto >= tiempoEnd)
-  {
-    faseActual = faseActual + 1;
-    acelerado = 0;
-    tiempoStart = tiempoEnd;
-  }
-  if (minuto >= tiempoTotal + 2)
-  { // Espera 3 minutos adicionales antes de apagar todo y activar la alarma
-    apagar();
-    buzzerEnd();
+      break;
+    case ESPERA:
+      apagarLlenado();
+      break;
   }
 
-  if (minuto >= tiempoTotal + 5)
-  {
-    encendida = 0;
+  if (minuto >= fase.tiempo) {
+    minuto = 0;
+    faseActual++;
+    paso = 0;
   }
 }
 
 void processCommand()
 {
 
-  if (!espSerial.available())
+  if (!Serial.available())
     return false;  // No hay datos disponibles
   
   //String input = source->readStringUntil('\n');
-  
+
   JsonDocument doc;
-  DeserializationError error = deserializeJson(doc, espSerial);
+  DeserializationError error = deserializeJson(doc, Serial);
   
   if (error) {
     logMessage("{\"error\":\"Invalid JSON code 1\"}");
      Serial.println(error.c_str());
-	return false;
+	  return false;
   }
 
   
@@ -538,6 +616,7 @@ void startLavadora(const char* programa)
   resetTimer();
   sttone = 0;
   encendida = 1;
+
 }
 void stopLavadora()
 {
@@ -553,70 +632,20 @@ void resetTimer()
   minuto = 0;
   hora = 0;
   paso = 0;
+  tiempoTranscurrido = 0;
 }
 
 void setProgramaLargo()
 {
-  static FaseLavado tempFases[] = {
-      //  {"vaciado", 10},
-      {"llenadoPreLavado", 5},
-      {"llenado", 5},
-      {"lavado", 8},
-      {"vaciado", 1},
-      {"llenadoPreLavado", 5},
-      {"llenado", 5},
-      {"lavado", 8},
-      {"vaciado", 1},
-      {"centrifugar", 5},
-      {"llenadoLavado", 5},
-      {"llenado", 5},
-      {"lavado", 8},
-      {"vaciado", 1},
-      {"llenadoSuavizante", 5},
-      {"llenado", 5},
-      {"lavado", 8},
-      {"vaciado", 1},
-      {"llenadoSuavizante", 5},
-      {"llenado", 5},
-      {"lavado", 8},
-      {"vaciado", 1},
-      {"centrifugar", 10},
-      {"espera", 2},
-      {"vaciado", 1},
-      {"centrifugar", 10},
-  };
-   memcpy(fases, tempFases, sizeof(tempFases));
+ programa = 1;
 }
 
 void setProgramaCorto()
 {
-  static FaseLavado tempFases[] = {
-      {"llenadoLavado", 5},
-      {"llenado", 5},
-      {"lavado", 8},
-      {"vaciado", 1},
-      {"llenadoSuavizante", 5},
-      {"llenado", 5},
-      {"lavado", 8},
-      {"vaciado", 1},
-      {"llenadoSuavizante", 5},
-      {"llenado", 5},
-      {"lavado", 8},
-      {"vaciado", 1},
-      {"centrifugar", 10},
-      {"espera", 2},
-      {"vaciado", 1},
-      {"centrifugar", 10},
-  };
-
-  memcpy(fases, tempFases, sizeof(tempFases));
+ programa = 2;
 }
 
 void setProgramaVaciado()
 {
-  static FaseLavado tempFases[] = {
-      {"vaciado", 5},
-  };
-
-  memcpy(fases, tempFases, sizeof(tempFases));
+  programa = 3;
 }
