@@ -2,14 +2,6 @@
 #include <Servo.h>
 #include <ArduinoJson.h>
 #include <SoftwareSerial.h>
-
-// ESTE ARREGLO DETERMINA EN QUE ESTADO SE ENCUENTRA NUESTRA LAVADORA
-String ciclos[6] = {"LLENANDO",
-                    "LAVANDO",
-                    "VACIANDO",
-                    "ACELERAR",
-                    "CENTRIFUGANDO",
-                    "ESPERA"};
 					
 SoftwareSerial espSerial(18, 19); //RX TX
 bool led = true;
@@ -102,7 +94,6 @@ void calcTiempoTotal()
 // FUNCION DE LLENADO
 void llenado()
 {
-  ciclo = ciclos[0]; // ACTUALIZAMOS EL ESTADO EN PANTALLA "LLENANDO"
 
   if (tamborVacio == 1)
   {
@@ -125,7 +116,7 @@ void apagarLlenado()
 // FUNCION DE LAVADO
 void lavado()
 {
-  ciclo = ciclos[1]; // SE ACTUALIZA EL ESTADO EN PANTALLA "LAVANDO"
+
   if (paso == 0)
   {
     digitalWrite(vel1, HIGH);
@@ -162,7 +153,7 @@ void lavado()
 // FUNCION DE VACIADO DE TANQUE
 void vaciado()
 {
-  ciclo = ciclos[2];        // ACTUALIZAMOS EL ESTADO EN PANTALLA A "VACIANDO"
+
   digitalWrite(val1, HIGH); // APAGAMOS FUNCIONES QUE NO NECESITAMOS
   digitalWrite(giro, HIGH);
   digitalWrite(vel1, HIGH);
@@ -176,7 +167,7 @@ void centrifugar()
 
   digitalWrite(val1, HIGH);
   digitalWrite(giro, HIGH); // AH
-  ciclo = ciclos[4];
+
 
   if (acelerado == 0)
   {
@@ -469,31 +460,15 @@ void loopLavadora()
 void processCommand()
 {
 
-  if (!Serial.available() && !espSerial.available())
+  if (!espSerial.available())
     return false;  // No hay datos disponibles
-
-  Stream* source;
-
-  if (Serial.available())
-  {
-    source = &Serial;
-  }
-  else if (espSerial.available())
-  {
-    source = &espSerial;
-  }
-  else
-  {
-    return false;  // Ninguna fuente válida (caso muy improbable)
-  }
   
-  String input = source->readStringUntil('\n');
+  //String input = source->readStringUntil('\n');
   
   JsonDocument doc;
-  DeserializationError error = deserializeJson(doc, input);
+  DeserializationError error = deserializeJson(doc, espSerial);
   
   if (error) {
-	    Serial.println(input);
     logMessage("{\"error\":\"Invalid JSON code 1\"}");
      Serial.println(error.c_str());
 	return false;
