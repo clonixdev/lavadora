@@ -2,6 +2,7 @@
 #include "pitches.h"
 #include <Servo.h>
 #include <Arduino_JSON.h>
+#include <SoftwareSerial.h>
 
 // ESTE ARREGLO DETERMINA EN QUE ESTADO SE ENCUENTRA NUESTRA LAVADORA
 String ciclos[6] = {"LLENANDO",
@@ -10,7 +11,8 @@ String ciclos[6] = {"LLENANDO",
                     "ACELERAR",
                     "CENTRIFUGANDO",
                     "ESPERA"};
-
+					
+SoftwareSerial espSerial(18, 19); //RX TX
 bool led = true;
 bool encendida = false;
 bool hasError = false;
@@ -59,6 +61,8 @@ void setup()
 {
 
   Serial.begin(9600);
+  espSerial.begin(9600);
+   
   // CONFIGURAMOS LOS PINES DE SALIDA NECESARIOS PARA NUESTRA LAVADORA
   pinMode(presostato, INPUT);
   pinMode(val1, OUTPUT);
@@ -307,7 +311,7 @@ void calibrarJabonera()
   startTone();
   startTone();
   jabservo.write(jabPosSuavizante);
-  Serial.println("CALIBRAR POSICION DE JABONERA");
+  logMessage("CALIBRAR POSICION DE JABONERA");
   apagar();
   return;
 }
@@ -342,6 +346,15 @@ void loop()
     Serial.println(inputReturn);
     processCommand(input);
   }
+  
+  if (espSerial.available())
+  {
+    String input = espSerial.readStringUntil('\n');
+    String inputReturn = "LV RECIBE: "+input;
+    espSerial.println(inputReturn);
+	Serial.println(inputReturn);
+    processCommand(input);
+  }
 
   if (encendida)
   {
@@ -354,6 +367,11 @@ void loop()
   }
 
   delay(1000);
+}
+
+void logMessage(String msg) {
+  Serial.println(msg);
+  espSerial.println(msg);
 }
 
 void serialSendStatus()
@@ -369,7 +387,7 @@ void serialSendStatus()
   json += "\"Paso\": " + String(paso);
   json += "}";
 
-  Serial.println(json);
+  logMessage(json);
 }
 
 void loopLavadora()
@@ -379,14 +397,13 @@ void loopLavadora()
   {
     startTone();
     sttone = 1;
-   // Serial.println("START");
   }
 
   if (llenadoError)
   {
     errorTone();
     hasError = true;
-    Serial.println("{\"error\":\"Error de llenado\"}");
+    logMessage("{\"error\":\"Error de llenado\"}");
     apagar();
     return;
   }
@@ -408,7 +425,7 @@ void loopLavadora()
       {
         minuto = minuto + 1;
         segundos = 0;
-        Serial.println("AVANCE TAMBOR LLENO");
+        logMessage("AVANCE TAMBOR LLENO");
       }
 
       setJabonera();
@@ -469,13 +486,13 @@ void processCommand(String input)
   // JSON.typeof(jsonVar) can be used to get the type of the variable
   if (JSON.typeof(myObject) == "undefined")
   {
-    Serial.println("{\"error\":\"Invalid JSON\"}");
+    logMessage("{\"error\":\"Invalid JSON\"}");
     return;
   }
 
   if (!myObject.hasOwnProperty("command"))
   {
-    Serial.println("{\"error\":\"Invalid Command\"}");
+    logMessage("{\"error\":\"Invalid Command\"}");
     return;
   }
   String command = myObject["command"];
@@ -490,7 +507,7 @@ void processCommand(String input)
        String programa = myObject["programa"];
        startLavadora(programa);
     }else {
-          Serial.println("{\"error\":\"Invalid Command Programa no definido\"}");
+          logMessage("{\"error\":\"Invalid Command Programa no definido\"}");
     return;
     }
 
@@ -506,7 +523,7 @@ void processCommand(String input)
   }
   else
   {
-    Serial.println("{\"error\":\"Unknown command\"}");
+    logMessage("{\"error\":\"Unknown command\"}");
   }
 }
 
