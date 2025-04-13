@@ -340,23 +340,6 @@ void loop()
   /////////////////////////////////////////// control tiempos
   loopTimer();
 
-  if (Serial.available())
-  {
-    String input = Serial.readStringUntil('\n');
-    String inputReturn = "LV RECIBE: "+input;
-    Serial.println(inputReturn);
-    processCommand(input);
-  }
-  
-  if (espSerial.available())
-  {
-    String input = espSerial.readStringUntil('\n');
-    String inputReturn = "LV RECIBE: "+input;
-    espSerial.println(inputReturn);
-	Serial.println(inputReturn);
-    processCommand(input);
-  }
-
   if (encendida)
   {
     loopLavadora();
@@ -366,6 +349,19 @@ void loop()
   {
     serialSendStatus();
   }
+
+  if (Serial.available())
+  {
+    String input = Serial.readStringUntil('\n');
+    processCommand(input);
+  }
+  
+  if (espSerial.available())
+  {
+    String input = espSerial.readStringUntil('\n');
+    processCommand(input);
+  }
+
 
   delay(1000);
 }
@@ -387,7 +383,7 @@ void serialSendStatus()
   json += "\"Segundo\": " + String(segundos)+ ", ";
   json += "\"Paso\": " + String(paso);
   json += "}";
-
+logMessage("sens status");
   logMessage(json);
 }
 
@@ -482,6 +478,9 @@ void loopLavadora()
 void processCommand(String input)
 {
 
+  if(!input){
+    return;
+  }
   JsonObject& root = jsonBuffer.parseObject(input.c_str());
 
   if(!root.success()) {
