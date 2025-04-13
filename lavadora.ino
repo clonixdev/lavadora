@@ -1,9 +1,9 @@
 #include "pitches.h"
-#include <Servo.h>
+#include <ServoTimer2.h>
 #include <ArduinoJson.h>
-#include <SoftwareSerial.h>
+#include <NeoSWSerial.h>
 					
-SoftwareSerial espSerial(18, 19); //RX TX
+NeoSWSerial espSerial(15, 16); //RX TX
 bool led = true;
 bool encendida = false;
 bool hasError = false;
@@ -12,10 +12,9 @@ const int intervalo = 1000;
 int contador = 0;
 int segundos = 0;
 int minuto = 0;
-String ciclo;   // VARIABLE PARA LA ACTUALIZACION DEL CICLO ENLA PANTALL
 int paso = 0;   // REGISTRO DE PASO PARA EL LAVADO Y EL CICLO DE ACELERACION DEL TANQUE
 int sttone = 0; // TONO INICIAL
-Servo jabservo;
+ServoTimer2 jabservo;
 
 int ultimoSegundoEnviado = -1;
 int presostato = 17;
@@ -29,9 +28,9 @@ int bloqueo = 10; // BLOQUEO DE PUERTA
 int alarma = 2;   // ALARMA BUZZER PARA FIN DE LAVADO
 int acelerado = 0;
 int jabonera = 3;
-int jabPosLavado = 90;
-int jabPosSuavizante = 120;
-int jabPosPreLavado = 180;
+int jabPosLavado = 1000;
+int jabPosSuavizante = 1500;
+int jabPosPreLavado = 1800;
 
 int tamborVacio = 0;
 int tiempoTotal = 0;
@@ -77,7 +76,6 @@ void setup()
   digitalWrite(bomba, HIGH);
   digitalWrite(bloqueo, LOW); // BLOQUEO DE PUERTA
   jabservo.attach(jabonera);
-  jabservo.write(90);
 
   delay(2000);
   powerOnTone();
@@ -186,7 +184,7 @@ void centrifugar()
     acelerado = 1;
   }
 
-  ciclo = ciclos[4];
+
   // SENTIDO DE GIRO EN CENTRIFUGADO , EL CENTRIFUGADO FUNCIONA BIEN CON 1 SENTIDO NO FUNCIONA DE LA MISMA MANERA EN LOS DOS
   //  ACTIVAMOS LOS 2 RELES DE CAMBIOI DE VELOCDIAD
   digitalWrite(vel1, LOW);
@@ -197,7 +195,7 @@ void centrifugar()
 
 void apagar()
 {
-  ciclo = ciclos[5];
+
   digitalWrite(val1, HIGH);
   digitalWrite(giro, HIGH);
   digitalWrite(vel1, HIGH);
@@ -291,18 +289,22 @@ void loopTimer()
 
 void calibrarJabonera()
 {
+ logMessage("CALIBRAR POSICION DE JABONERA");
 
+ Serial.println(jabservo.read());
   jabservo.write(jabPosPreLavado);
   delay(5000);
   startTone();
   startTone();
+   Serial.println(jabservo.read());
   jabservo.write(jabPosLavado);
   delay(5000);
   startTone();
   startTone();
   startTone();
+   Serial.println(jabservo.read());
   jabservo.write(jabPosSuavizante);
-  logMessage("CALIBRAR POSICION DE JABONERA");
+ 
   apagar();
   return;
 }
@@ -320,6 +322,8 @@ void setJabonera()
   else if (fases[faseActual].funcion == "llenadoSuavizante")
   {
     jabservo.write(jabPosSuavizante);
+  }else {
+   jabservo.write(jabPosPreLavado); 
   }
 }
 void loop()
