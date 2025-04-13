@@ -486,7 +486,7 @@ void processCommand(String input)
   // JSON.typeof(jsonVar) can be used to get the type of the variable
   if (JSON.typeof(myObject) == "undefined")
   {
-    logMessage("{\"error\":\"Invalid JSON\"}");
+    logMessage("{\"error\":\"Invalid JSON code 1\"}");
     return;
   }
 
