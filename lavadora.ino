@@ -15,7 +15,7 @@ int minuto = 0;
 int paso = 0;   // REGISTRO DE PASO PARA EL LAVADO Y EL CICLO DE ACELERACION DEL TANQUE
 int sttone = 0; // TONO INICIAL
 ServoTimer2 jabservo;
-
+int totalFases = 0;
 int tiempoTranscurrido = 0; 
 int ultimoSegundoEnviado = -1;
 int presostato = 17;
@@ -377,7 +377,6 @@ void setJabonera()
 {
   FaseIndex fase = fases[faseActual];
 
-  
   if (fase.funcion == LLENADO_PRE_LAVADO)
   {
     jabservo.write(jabPosPreLavado);
@@ -437,6 +436,7 @@ void serialSendStatus()
 	JsonDocument doc;
 	doc["Encendida"] = encendida;
   doc["FaseActual"] = faseActual;
+  doc["totalFases"] = totalFases;
 	doc["TamborVacio"] = tamborVacio;
 	doc["Minuto"] = minuto;
 	doc["Segundo"] = segundos;
@@ -476,17 +476,13 @@ void loopLavadora()
   {
     errorbuzzerPWM();
     hasError = true;
+    Serial.println("LLENADO ERROR");
     logMessage("{\"error\":\"Error de llenado\"}");
     apagar();
     return;
   }
 
-  int totalFases = 0;
-  switch (programa) {
-    case 1: totalFases = sizeof(programaLargo) / sizeof(FaseIndex); break;
-    case 2: totalFases = sizeof(programaCorto) / sizeof(FaseIndex); break;
-    case 3: totalFases = sizeof(programaVaciado) / sizeof(FaseIndex); break;
-  }
+
 
   if (faseActual >= totalFases) {
     encendida = false;
@@ -496,7 +492,6 @@ void loopLavadora()
   }
   
   FaseIndex fase = fases[faseActual];
-
   switch (fase.funcion) {
     case LLENADO:
       setJabonera();
@@ -514,6 +509,7 @@ void loopLavadora()
         segundos = 0;
         logMessage("AVANCE TAMBOR LLENO");
       }
+      logMessage("Llendo pre");
       break;
     case LAVADO:
       apagarLlenado();
@@ -530,6 +526,8 @@ void loopLavadora()
     case ESPERA:
       apagarLlenado();
       break;
+    default:
+     Serial.println("FUNCION NO RECONOCIDA");
   }
 
   if (minuto >= fase.tiempo) {
@@ -542,13 +540,13 @@ void loopLavadora()
 void processCommand()
 {
 
-  if (!Serial.available())
+  if (!espSerial.available())
     return false;  // No hay datos disponibles
   
   //String input = source->readStringUntil('\n');
 
   JsonDocument doc;
-  DeserializationError error = deserializeJson(doc, Serial);
+  DeserializationError error = deserializeJson(doc, espSerial);
   
   if (error) {
     logMessage("{\"error\":\"Invalid JSON code 1\"}");
@@ -596,6 +594,14 @@ void processCommand()
   }
 }
 
+void calcTotalFases(){
+ 
+  switch (programa) {
+    case 1: totalFases = 25;break;
+    case 2: totalFases = 16;break;
+    case 3: totalFases = 1; break;
+  }
+}
 void startLavadora(const char* programa)
 {
 
@@ -613,6 +619,7 @@ void startLavadora(const char* programa)
   }
 
   calcTiempoTotal();
+  calcTotalFases();
   resetTimer();
   sttone = 0;
   encendida = 1;
@@ -638,14 +645,17 @@ void resetTimer()
 void setProgramaLargo()
 {
  programa = 1;
+   fases = getPrograma();
 }
 
 void setProgramaCorto()
 {
  programa = 2;
+   fases = getPrograma();
 }
 
 void setProgramaVaciado()
 {
   programa = 3;
+    fases = getPrograma();
 }
