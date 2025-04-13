@@ -25,8 +25,8 @@ String ciclo;   // VARIABLE PARA LA ACTUALIZACION DEL CICLO ENLA PANTALL
 int paso = 0;   // REGISTRO DE PASO PARA EL LAVADO Y EL CICLO DE ACELERACION DEL TANQUE
 int sttone = 0; // TONO INICIAL
 Servo jabservo;
-StaticJsonBuffer<200> jsonBuffer;
 
+int ultimoSegundoEnviado = -1;
 int presostato = 17;
 int val1 = 8;     // VALVULA DE ENTRADA DE AGUA
 int giro = 5;     // GIRO DEL MOTOR
@@ -345,25 +345,15 @@ void loop()
     loopLavadora();
   }
 
-  if (segundos % 2 == 0)
+  if (segundos % 2 == 0 && segundos != ultimoSegundoEnviado)
   {
     serialSendStatus();
   }
 
-  if (Serial.available())
-  {
-    String input = Serial.readStringUntil('\n');
-    processCommand(input);
-  }
-  
-  if (espSerial.available())
-  {
-    String input = espSerial.readStringUntil('\n');
-    processCommand(input);
-  }
+      processCommand();
+	  
+	  
 
-
-  delay(1000);
 }
 
 void logMessage(String msg) {
@@ -373,18 +363,19 @@ void logMessage(String msg) {
 
 void serialSendStatus()
 {
-  String json = "{";
-  json += "\"Encendida\": \"" + String(encendida) + "\", ";
-  //json += "\"Fase\": \"" + String(fases[faseActual].funcion) + "\", ";
-  json += "\"FaseActual\": \"" + String(faseActual) + "\", ";
-  json += "\"TamborVacio\": " + String(tamborVacio) + ", ";
-  //json += "\"Ciclo\": " + String(ciclo) + ", ";
-  json += "\"Minuto\": " + String(minuto)+ ", ";
-  json += "\"Segundo\": " + String(segundos)+ ", ";
-  json += "\"Paso\": " + String(paso);
-  json += "}";
-logMessage("sens status");
-  logMessage(json);
+	
+	JsonDocument doc;
+	doc["Encendida"] = encendida;
+    doc["FaseActual"] = faseActual;
+	doc["TamborVacio"] = tamborVacio;
+	doc["Minuto"] = minuto;
+	doc["Segundo"] = segundos;
+	doc["Paso"] = paso;
+	
+    serializeJson(doc, Serial);
+	serializeJson(doc, espSerial);
+    Serial.println();
+	espSerial.println();
 }
 
 void loopLavadora()
@@ -475,25 +466,43 @@ void loopLavadora()
   }
 }
 
-void processCommand(String input)
+void processCommand()
 {
 
-  if(!input){
-    return;
-  }
-  JsonObject& root = jsonBuffer.parseObject(input.c_str());
+  if (!Serial.available() && !espSerial.available())
+    return false;  // No hay datos disponibles
 
-  if(!root.success()) {
-    logMessage("{\"error\":\"Invalid JSON code 1\"}");
-    logMessage(input);
-	  return false;
+  Stream* source;
+
+  if (Serial.available())
+  {
+    source = &Serial;
+  }
+  else if (espSerial.available())
+  {
+    source = &espSerial;
+  }
+  else
+  {
+    return false;  // Ninguna fuente válida (caso muy improbable)
   }
   
-	if (!root.containsKey("command")) {
+  
+  JsonDocument doc;
+  DeserializationError error = deserializeJson(doc, *source);
+  
+  if (error) {
+    logMessage("{\"error\":\"Invalid JSON code 1\"}");
+    logMessage(input);
+	return false;
+  }
+
+  
+	if (!doc.containsKey("command")) {
 	  logMessage("{\"error\":\"Missing 'command' key\"}");
 	  return false;
 	}
-  const char* command = root["command"];
+  const char* command = doc["command"];
   
 
   // Comparar el comando recibido
@@ -501,9 +510,10 @@ void processCommand(String input)
   {
 
 
-	if (!root.containsKey("programa")) {
-       const char* programa = root["programa"];
+	if (doc.containsKey("programa")) {
+       const char* programa = doc["programa"];
        startLavadora(programa);
+	   logMessage("{\"status\":\"ok\",\"command\":\"start\"}");
     }else {
           logMessage("{\"error\":\"Invalid Command Programa no definido\"}");
     return;
@@ -514,10 +524,12 @@ void processCommand(String input)
   else if (strcmp(command, "stop") == 0)
   {
     stopLavadora();
+	 logMessage("{\"status\":\"ok\",\"command\":\"stop\"}");
   }
   else if (strcmp(command, "jabon") == 0)
   {
     calibrarJabonera();
+	logMessage("{\"status\":\"ok\",\"command\":\"jabon\"}");
   }
   else
   {
