@@ -1,4 +1,3 @@
-#include <Wire.h>
 #include "pitches.h"
 #include <Servo.h>
 #include <ArduinoJson.h>
@@ -488,14 +487,15 @@ void processCommand()
     return false;  // Ninguna fuente válida (caso muy improbable)
   }
   
-//String input = source->readStringUntil('\n');
+  String input = source->readStringUntil('\n');
   
   JsonDocument doc;
-  DeserializationError error = deserializeJson(doc, *source);
+  DeserializationError error = deserializeJson(doc, input);
   
   if (error) {
+	    Serial.println(input);
     logMessage("{\"error\":\"Invalid JSON code 1\"}");
-    
+     Serial.println(error.c_str());
 	return false;
   }
 
