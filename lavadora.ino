@@ -483,11 +483,13 @@ void processCommand(String input)
 
   JSONVar myObject = JSON.parse(input.c_str());
 
+
   // JSON.typeof(jsonVar) can be used to get the type of the variable
   if (JSON.typeof(myObject) == "undefined")
   {
     logMessage("{\"error\":\"Invalid JSON code 1\"}");
     logMessage(input);
+   
     return;
   }
 
