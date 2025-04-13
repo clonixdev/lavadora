@@ -488,30 +488,14 @@ void processCommand()
     return false;  // Ninguna fuente válida (caso muy improbable)
   }
   
-  // Definir un buffer suficientemente grande para almacenar el comando
-  const size_t BUFFER_SIZE = 256; // Ajusta según el tamaño esperado del JSON
-  char input[BUFFER_SIZE];
-  size_t index = 0;
-  char incomingChar;
-
-  // Leer los datos carácter por carácter
-  while (source->available()) {
-    incomingChar = source->read();
-    if (incomingChar == '\n' || incomingChar == '\r' || index >= BUFFER_SIZE - 1) {
-      // Salir si encontramos un salto de línea, retorno de carro o alcanzamos el límite del buffer
-      break;
-    }
-    input[index++] = incomingChar;  // Agregar el carácter al buffer
-  }
-  input[index] = '\0';  // Asegurarse de que el buffer termine con un terminador nulo
-
+//String input = source->readStringUntil('\n');
   
   JsonDocument doc;
-  DeserializationError error = deserializeJson(doc, input);
+  DeserializationError error = deserializeJson(doc, *source);
   
   if (error) {
     logMessage("{\"error\":\"Invalid JSON code 1\"}");
-     logMessage(input);
+    
 	return false;
   }
 
