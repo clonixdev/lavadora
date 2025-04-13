@@ -491,10 +491,11 @@ void processCommand()
   String input = source->readStringUntil('\n');
   
   JsonDocument doc;
-  DeserializationError error = deserializeJson(doc, input.c_str());
+  DeserializationError error = deserializeJson(doc, input);
   
   if (error) {
     logMessage("{\"error\":\"Invalid JSON code 1\"}");
+     logMessage(input);
 	return false;
   }
 
