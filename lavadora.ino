@@ -338,6 +338,8 @@ void loop()
   if (Serial.available())
   {
     String input = Serial.readStringUntil('\n');
+    String inputReturn = "LV RECIBE: "+input;
+    Serial.println(inputReturn);
     processCommand(input);
   }
 
@@ -358,12 +360,12 @@ void serialSendStatus()
 {
   String json = "{";
   json += "\"Encendida\": \"" + String(encendida) + "\", ";
-  json += "\"Fase\": \"" + String(fases[faseActual].funcion) + "\", ";
+  //json += "\"Fase\": \"" + String(fases[faseActual].funcion) + "\", ";
   json += "\"FaseActual\": \"" + String(faseActual) + "\", ";
   json += "\"TamborVacio\": " + String(tamborVacio) + ", ";
-  json += "\"Ciclo\": " + String(ciclo) + ", ";
-  json += "\"Minuto\": " + String(minuto);
-  json += "\"Segundo\": " + String(segundos);
+  //json += "\"Ciclo\": " + String(ciclo) + ", ";
+  json += "\"Minuto\": " + String(minuto)+ ", ";
+  json += "\"Segundo\": " + String(segundos)+ ", ";
   json += "\"Paso\": " + String(paso);
   json += "}";
 
@@ -482,13 +484,17 @@ void processCommand(String input)
   if (command == "start")
   {
 
-    String programa = "largo";
+
     if (myObject.hasOwnProperty("programa"))
     {
-      programa = myObject["programa"];
+       String programa = myObject["programa"];
+       startLavadora(programa);
+    }else {
+          Serial.println("{\"error\":\"Invalid Command Programa no definido\"}");
+    return;
     }
 
-    startLavadora(programa);
+    
   }
   else if (command == "stop")
   {
@@ -543,7 +549,7 @@ void resetTimer()
 
 void setProgramaLargo()
 {
-  fases = {
+  static FaseLavado tempFases[] = {
       //  {"vaciado", 10},
       {"llenadoPreLavado", 5},
       {"llenado", 5},
@@ -571,11 +577,12 @@ void setProgramaLargo()
       {"vaciado", 1},
       {"centrifugar", 10},
   };
+   memcpy(fases, tempFases, sizeof(tempFases));
 }
 
 void setProgramaCorto()
 {
-  fases = {
+  static FaseLavado tempFases[] = {
       {"llenadoLavado", 5},
       {"llenado", 5},
       {"lavado", 8},
@@ -593,11 +600,15 @@ void setProgramaCorto()
       {"vaciado", 1},
       {"centrifugar", 10},
   };
+
+  memcpy(fases, tempFases, sizeof(tempFases));
 }
 
 void setProgramaVaciado()
 {
-  fases = {
+  static FaseLavado tempFases[] = {
       {"vaciado", 5},
   };
+
+  memcpy(fases, tempFases, sizeof(tempFases));
 }
