@@ -29,9 +29,10 @@ int bloqueo = 10; // BLOQUEO DE PUERTA
 int alarma = 2;   // ALARMA BUZZER PARA FIN DE LAVADO
 int acelerado = 0;
 int jabonera = 3;
-int jabPosLavado = 1000;
-int jabPosSuavizante = 1500;
-int jabPosPreLavado = 1800;
+int jabPosLavado = 1100;
+int jabPosSuavizante = 900;
+int jabPosPreLavado = 750;
+int jabPosLavandina = 1350;
 
 int tamborVacio = 0;
 int tiempoTotal = 0;
@@ -107,7 +108,7 @@ void setup()
   digitalWrite(vel2, HIGH);
   digitalWrite(motor, HIGH);
   digitalWrite(bomba, HIGH);
-  digitalWrite(bloqueo, LOW); // BLOQUEO DE PUERTA
+  digitalWrite(bloqueo, HIGH); // BLOQUEO DE PUERTA
  
   jabservo.attach(jabonera);
   
@@ -115,15 +116,7 @@ void setup()
 }
 
 void buzzerPWM(int pin, int freq, int duration) {
-  int delayValue = 1000000 / freq / 2; // mitad del ciclo
-  int numCycles = freq * duration / 1000;
-
-  for (int i = 0; i < numCycles; i++) {
-    digitalWrite(pin, HIGH);
-    delayMicroseconds(delayValue);
-    digitalWrite(pin, LOW);
-    delayMicroseconds(delayValue);
-  }
+  digitalWrite(pin, HIGH);
 }
 
 void nobuzzerPWM(int pin) {
@@ -263,6 +256,10 @@ void apagar()
   digitalWrite(bloqueo, HIGH);
 }
 
+void bloqueoPuerta(){
+  digitalWrite(bloqueo, HIGH);
+}
+
 void buzzerEnd()
 {
   buzzerPWM(alarma, NOTE_A5, 100);
@@ -278,21 +275,6 @@ void buzzerEnd()
   delay(600);
   nobuzzerPWM(alarma);
   buzzerPWM(alarma, NOTE_A5, 100);
-  delay(5000);
-  buzzerPWM(alarma, NOTE_A5, 100);
-  delay(600);
-  nobuzzerPWM(alarma);
-  buzzerPWM(alarma, NOTE_A5, 100);
-  delay(600);
-  nobuzzerPWM(alarma);
-  buzzerPWM(alarma, NOTE_A5, 100);
-  delay(600);
-  nobuzzerPWM(alarma);
-  buzzerPWM(alarma, NOTE_A5, 100);
-  delay(600);
-  nobuzzerPWM(alarma);
-  buzzerPWM(alarma, NOTE_A5, 100);
-  delay(5000);
   nobuzzerPWM(alarma);
 }
 
@@ -347,30 +329,9 @@ void loopTimer()
   }
 }
 
-void calibrarJabonera()
+void calibrarJabonera(int value)
 {
- logMessage("CALIBRAR POSICION DE JABONERA");
-  delay(5000);
-  startbuzzerPWM();
-  servoTest();
-  delay(5000);
-  startbuzzerPWM();
-  Serial.println(jabservo.read());
-  jabservo.write(jabPosPreLavado);
-  delay(5000);
-  startbuzzerPWM();
-  startbuzzerPWM();
-   Serial.println(jabservo.read());
-  jabservo.write(jabPosLavado);
-  delay(5000);
-  startbuzzerPWM();
-  startbuzzerPWM();
-  startbuzzerPWM();
-   Serial.println(jabservo.read());
-  jabservo.write(jabPosSuavizante);
- 
-  apagar();
-  return;
+  jabservo.write(value);
 }
 
 void setJabonera()
@@ -465,7 +426,7 @@ const FaseIndex* getPrograma() {
 
 void loopLavadora()
 {
-
+  bloqueoPuerta();
   if (sttone == 0)
   {
     startbuzzerPWM();
@@ -509,7 +470,6 @@ void loopLavadora()
         segundos = 0;
         logMessage("AVANCE TAMBOR LLENO");
       }
-      logMessage("Llendo pre");
       break;
     case LAVADO:
       apagarLlenado();
@@ -585,8 +545,15 @@ void processCommand()
   }
   else if (strcmp(command, "jabon") == 0)
   {
-    calibrarJabonera();
-	logMessage("{\"status\":\"ok\",\"command\":\"jabon\"}");
+    	if (doc.containsKey("val")) {
+       const int val = doc["val"];
+       calibrarJabonera(val);
+	   logMessage("{\"status\":\"ok\",\"command\":\"jabon\"}");
+    }else {
+          logMessage("{\"error\":\"Invalid Command Programa no definido\"}");
+    return;
+    }
+    
   }
   else
   {
