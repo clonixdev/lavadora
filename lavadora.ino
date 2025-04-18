@@ -438,10 +438,11 @@ const FaseIndex* getPrograma() {
 
 void loopLavadora()
 {
-  bloqueoPuerta();
+
   if (sttone == 0)
   {
     startbuzzerPWM();
+      bloqueoPuerta();
     sttone = 1;
   }
 
@@ -458,6 +459,7 @@ void loopLavadora()
 
 
   if (faseActual >= totalFases) {
+    logMessage("FINAL");
     encendida = false;
     buzzerEnd();
     apagar();
@@ -467,14 +469,14 @@ void loopLavadora()
   FaseIndex fase = fases[faseActual];
   switch (fase.funcion) {
     case LLENADO:
-      setJabonera();
+      //setJabonera();
       llenado();
       lavado();
       break;
     case LLENADO_PRE_LAVADO:
     case LLENADO_LAVADO:
     case LLENADO_SUAVIZANTE:
-      setJabonera();
+      //setJabonera();
       llenado();
       if (tamborVacio == 0)
       {
@@ -506,6 +508,7 @@ void loopLavadora()
     minuto = 0;
     faseActual++;
     paso = 0;
+    segundos = 0;
   }
 }
 
