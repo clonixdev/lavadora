@@ -1,4 +1,3 @@
-#include "pitches.h"
 #include <ServoTimer2.h>
 #include <ArduinoJson.h>
 #include <NeoSWSerial.h>
@@ -71,10 +70,8 @@ const FaseIndex programaLargo[] = {
 };
 
 const FaseIndex programaCorto2[] = {
-  {LLENADO_PRE_LAVADO, 5}, {LLENADO, 5}, {LAVADO, 8}, {VACIADO, 1},
-  {LLENADO_SUAVIZANTE, 5}, {LLENADO, 5}, {LAVADO, 8}, {VACIADO, 1},
-  {LLENADO_SUAVIZANTE, 5}, {LLENADO, 5}, {LAVADO, 8}, {VACIADO, 1},
-  {CENTRIFUGAR, 10}, {ESPERA, 2}, {VACIADO, 1}, {CENTRIFUGAR, 10}
+  {LLENADO_PRE_LAVADO, 5}, {LLENADO, 5}, {LAVADO, 15}, {VACIADO, 1},
+  {CENTRIFUGAR, 5},{ESPERA, 2},{CENTRIFUGAR, 3}, {VACIADO, 1},
 };
 
 const FaseIndex programaCorto[] = {
@@ -124,11 +121,16 @@ void setup()
 }
 
 void buzzerPWM(int pin, int freq, int duration) {
-  digitalWrite(pin, HIGH);
-  digitalWrite(pin, LOW);
-  digitalWrite(pin, HIGH);
-  digitalWrite(pin, LOW);
-  digitalWrite(pin, HIGH);
+  int period = 1000000 / freq; // periodo en microsegundos
+  int halfPeriod = period / 2;
+  long cycles = ((long)duration * 1000L) / period;
+
+  for (long i = 0; i < cycles; i++) {
+    digitalWrite(pin, HIGH);
+    delayMicroseconds(halfPeriod);
+    digitalWrite(pin, LOW);
+    delayMicroseconds(halfPeriod);
+  }
 }
 
 void nobuzzerPWM(int pin) {
@@ -144,6 +146,7 @@ void calcTiempoTotal()
     case 1: length = sizeof(programaLargo) / sizeof(FaseIndex); break;
     case 2: length = sizeof(programaCorto) / sizeof(FaseIndex); break;
     case 3: length = sizeof(programaVaciado) / sizeof(FaseIndex); break;
+    case 4: length = sizeof(programaCorto2) / sizeof(FaseIndex); break;
   }
 
   tiempoTotal = 0;
@@ -180,29 +183,35 @@ void lavado()
 
   if (paso == 0)
   {
+    digitalWrite(motor, HIGH);
+    delay(100);
     digitalWrite(vel1, HIGH);
     digitalWrite(vel2, HIGH);
-    digitalWrite(motor, HIGH);
+    delay(100);
     digitalWrite(bomba, HIGH);
   }
   else if (paso == 1)
   { // PASO DE LAVADO 1  CICLO DE MOTOR APAGADO
     digitalWrite(motor, HIGH);
+    delay(100);
     digitalWrite(giro, HIGH);
   }
   else if (paso == 2)
   { // PASO DE LAVADO 2  CICLO DE GIRO EN EL SENTIDO CONTRARIO A LAS MANECILLAS DEL RELOJ
     digitalWrite(giro, HIGH);
+    delay(100);
     digitalWrite(motor, LOW);
   }
   else if (paso == 3)
   { // PASO DE LAVADO 3  CICLO DE MOTOR APAGADO
     digitalWrite(motor, HIGH);
+    delay(100);
     digitalWrite(giro, LOW);
   }
   else if (paso == 4)
   { // PASO DE LAVADO 4  CICLO DE GIRO EN EL SENTIDO DE LAS MANECILLAS DEL RELOJ
     digitalWrite(giro, LOW);
+    delay(100);
     digitalWrite(motor, LOW);
   }
   if (paso > 4)
@@ -214,12 +223,16 @@ void lavado()
 // FUNCION DE VACIADO DE TANQUE
 void vaciado()
 {
-
   digitalWrite(val1, HIGH); // APAGAMOS FUNCIONES QUE NO NECESITAMOS
+  delay(100);
   digitalWrite(giro, HIGH);
+  delay(100);
   digitalWrite(vel1, HIGH);
+  delay(100);
   digitalWrite(vel2, HIGH);
+  delay(100);
   digitalWrite(motor, HIGH);
+  delay(100);
   digitalWrite(bomba, LOW); // ENCENDIDO DE LA BOMBA PARA VACIAR EL TANQUE
 }
 
@@ -251,8 +264,11 @@ void centrifugar()
   // SENTIDO DE GIRO EN CENTRIFUGADO , EL CENTRIFUGADO FUNCIONA BIEN CON 1 SENTIDO NO FUNCIONA DE LA MISMA MANERA EN LOS DOS
   //  ACTIVAMOS LOS 2 RELES DE CAMBIOI DE VELOCDIAD
   digitalWrite(vel1, LOW);
+  delay(100);
   digitalWrite(vel2, LOW);
+  delay(100);
   digitalWrite(bomba, LOW); // ACTIVAMOS LA BOMBA DE DESAGOTE
+  delay(100);
   digitalWrite(motor, LOW);
 }
 
@@ -274,44 +290,44 @@ void bloqueoPuerta(){
 
 void buzzerEnd()
 {
-  buzzerPWM(alarma, NOTE_A5, 100);
+  buzzerPWM(alarma, 880, 100);
   delay(600);
   nobuzzerPWM(alarma);
-  buzzerPWM(alarma, NOTE_A5, 100);
+  buzzerPWM(alarma, 880, 100);
   delay(600);
   nobuzzerPWM(alarma);
-  buzzerPWM(alarma, NOTE_A5, 100);
+  buzzerPWM(alarma, 880, 100);
   delay(600);
   nobuzzerPWM(alarma);
-  buzzerPWM(alarma, NOTE_A5, 100);
+  buzzerPWM(alarma, 880, 100);
   delay(600);
   nobuzzerPWM(alarma);
-  buzzerPWM(alarma, NOTE_A5, 100);
+  buzzerPWM(alarma, 880, 100);
   nobuzzerPWM(alarma);
 }
 
 // TONO INICIO
 void startbuzzerPWM()
 {
-  buzzerPWM(alarma, NOTE_A5, 200);
+  buzzerPWM(alarma, 880, 200);
   delay(500);
-  buzzerPWM(alarma, NOTE_B5, 200);
+  buzzerPWM(alarma, 1000, 200);
   delay(500);
   nobuzzerPWM(alarma);
 }
 
 void powerOnbuzzerPWM()
 {
-  buzzerPWM(alarma, NOTE_A5, 200);
+  buzzerPWM(alarma, 880, 200);
   /*delay(1000);
   nobuzzerPWM(alarma);*/
 }
 
 void errorbuzzerPWM()
 {
-  buzzerPWM(alarma, NOTE_C5, 500);
+  buzzerPWM(alarma, 440, 500);
   delay(1000);
-  buzzerPWM(alarma, NOTE_C5, 500);
+  buzzerPWM(alarma, 440, 500);
   delay(1000);
   nobuzzerPWM(alarma);
 }
@@ -366,14 +382,6 @@ void setJabonera()
   }
 }
 
-void servoTest(){
-   jabservo.write(jabPosPreLavado);
-    delay(1000);  
-  jabservo.write(jabPosLavado);
-    delay(1000);  
-  jabservo.write(jabPosSuavizante);
-   delay(10);  
-}
 void loop()
 {
 
@@ -387,7 +395,7 @@ void loop()
     loopLavadora();
   }
 
-  if (segundos % 2 == 0 && segundos != ultimoSegundoEnviado)
+  if (segundos % 5 == 0 && segundos != ultimoSegundoEnviado)
   {
     serialSendStatus();
     ultimoSegundoEnviado = segundos;
@@ -405,7 +413,6 @@ void logMessage(String msg) {
 
 void serialSendStatus()
 {
-	
 	JsonDocument doc;
 	doc["Encendida"] = encendida;
   doc["FaseActual"] = faseActual;
@@ -431,7 +438,9 @@ const FaseIndex* getPrograma() {
     return programaCorto;
   } else if (programa == 3) {
     return programaVaciado;
-  } else {
+  } else if (programa == 4) {
+    return programaCorto2;
+  }else {
     return programaLargo; // Por defecto
   }
 }
@@ -582,6 +591,7 @@ void calcTotalFases(){
     case 1: totalFases = 25;break;
     case 2: totalFases = 16;break;
     case 3: totalFases = 1; break;
+    case 4: totalFases = 8; break;
   }
 }
 void startLavadora(const char* programa)
@@ -590,6 +600,9 @@ void startLavadora(const char* programa)
   if (strcmp(programa, "corto") == 0)
   {
     setProgramaCorto();
+  }else if (strcmp(programa, "corto2") == 0)
+  {
+    setProgramaCorto2();
   }
   else if (strcmp(programa, "vaciado") == 0)
   {
@@ -634,6 +647,12 @@ void setProgramaCorto()
 {
  programa = 2;
    fases = getPrograma();
+}
+
+void setProgramaCorto2()
+{
+  programa = 4;
+  fases = getPrograma();
 }
 
 void setProgramaVaciado()
