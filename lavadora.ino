@@ -70,11 +70,18 @@ const FaseIndex programaLargo[] = {
   {VACIADO, 1}, {CENTRIFUGAR, 10}, {ESPERA, 2}, {VACIADO, 1}, {CENTRIFUGAR, 10}
 };
 
-const FaseIndex programaCorto[] = {
+const FaseIndex programaCorto2[] = {
   {LLENADO_PRE_LAVADO, 5}, {LLENADO, 5}, {LAVADO, 8}, {VACIADO, 1},
   {LLENADO_SUAVIZANTE, 5}, {LLENADO, 5}, {LAVADO, 8}, {VACIADO, 1},
   {LLENADO_SUAVIZANTE, 5}, {LLENADO, 5}, {LAVADO, 8}, {VACIADO, 1},
   {CENTRIFUGAR, 10}, {ESPERA, 2}, {VACIADO, 1}, {CENTRIFUGAR, 10}
+};
+
+const FaseIndex programaCorto[] = {
+  {LAVADO, 15}, {LLENADO, 1}, {LAVADO, 1}, {VACIADO, 1},
+  {LLENADO_SUAVIZANTE, 1}, {LLENADO, 1}, {LAVADO, 1}, {VACIADO, 1},
+  {LLENADO_SUAVIZANTE, 1}, {LLENADO, 1}, {LAVADO, 1}, {VACIADO, 1},
+  {CENTRIFUGAR, 2}, {ESPERA, 2}, {VACIADO, 1}, {CENTRIFUGAR, 2}
 };
 
 const FaseIndex programaVaciado[] = {
@@ -113,9 +120,14 @@ void setup()
   jabservo.attach(jabonera);
   
   powerOnbuzzerPWM();
+  logMessage("SETUP END");
 }
 
 void buzzerPWM(int pin, int freq, int duration) {
+  digitalWrite(pin, HIGH);
+  digitalWrite(pin, LOW);
+  digitalWrite(pin, HIGH);
+  digitalWrite(pin, LOW);
   digitalWrite(pin, HIGH);
 }
 
