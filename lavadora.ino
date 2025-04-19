@@ -395,11 +395,11 @@ void loop()
     loopLavadora();
   }
 
-  if (segundos % 5 == 0 && segundos != ultimoSegundoEnviado)
+ /* if (segundos % 5 == 0 && segundos != ultimoSegundoEnviado)
   {
     serialSendStatus();
     ultimoSegundoEnviado = segundos;
-  }
+  }*/
 
   processCommand();
 	 
@@ -499,7 +499,7 @@ void loopLavadora()
       lavado();
       break;
     case VACIADO:
-      apagarLlenado();
+      //apagarLlenado();
       vaciado();
       break;
     case CENTRIFUGAR:
