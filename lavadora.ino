@@ -17,6 +17,7 @@ ServoTimer2 jabservo;
 int totalFases = 0;
 int tiempoTranscurrido = 0; 
 int ultimoSegundoEnviado = -1;
+int ultimoSegundoLavadora = -1;
 int presostato = 17;
 int val1 = 8;     // VALVULA DE ENTRADA DE AGUA
 int giro = 5;     // GIRO DEL MOTOR
@@ -85,6 +86,10 @@ const FaseIndex programaVaciado[] = {
   {VACIADO, 2},
 };
 
+const FaseIndex programaCentrifugar[] = {
+  {VACIADO, 1},{CENTRIFUGAR, 5},
+};
+
 // CONFIGURACION DE PINES
 void setup()
 {
@@ -113,9 +118,8 @@ void setup()
   digitalWrite(motor, HIGH);
   digitalWrite(bomba, HIGH);
   digitalWrite(bloqueo, HIGH); // BLOQUEO DE PUERTA
- 
   jabservo.attach(jabonera);
-  
+
   powerOnbuzzerPWM();
   logMessage("SETUP END");
 }
@@ -139,9 +143,7 @@ void nobuzzerPWM(int pin) {
 
 void calcTiempoTotal()
 {
-  const FaseIndex* fasesLoc = getPrograma();
   int length = 0;
-
   switch (programa) {
     case 1: length = sizeof(programaLargo) / sizeof(FaseIndex); break;
     case 2: length = sizeof(programaCorto) / sizeof(FaseIndex); break;
@@ -151,14 +153,13 @@ void calcTiempoTotal()
 
   tiempoTotal = 0;
   for (int i = 0; i < length; i++) {
-    tiempoTotal += fasesLoc[i].tiempo;
+    tiempoTotal += fases[i].tiempo;
   }
 }
 
 // FUNCION DE LLENADO
 void llenado()
 {
-
   if (tamborVacio == 1)
   {
     digitalWrite(bomba, HIGH); // APAGAMOS LA BOMBA DE DESAGOTE
@@ -166,15 +167,9 @@ void llenado()
   }
   else
   {
-
     digitalWrite(val1, HIGH); // ENCENDEMOS LA VALVULA PARA QUE PUEDA ENTRAR AGUA
     digitalWrite(bomba, HIGH);
   }
-}
-void apagarLlenado()
-{
-  digitalWrite(val1, HIGH); // ENCENDEMOS LA VALVULA PARA QUE PUEDA ENTRAR AGUA
-  digitalWrite(bomba, HIGH);
 }
 
 // FUNCION DE LAVADO
@@ -189,6 +184,7 @@ void lavado()
     digitalWrite(vel2, HIGH);
     delay(100);
     digitalWrite(bomba, HIGH);
+    digitalWrite(val1, HIGH);
   }
   else if (paso == 1)
   { // PASO DE LAVADO 1  CICLO DE MOTOR APAGADO
@@ -353,7 +349,11 @@ void loopTimer()
       contador = 0;
       paso = paso + 1;
     }
-    
+
+    if (paso > 20)
+    {
+      paso = 0;
+    }
   }
 }
 
@@ -392,14 +392,18 @@ void loop()
 
   if (encendida)
   {
-    loopLavadora();
+    if (segundos != ultimoSegundoLavadora)
+    {
+      loopLavadora();
+      ultimoSegundoLavadora = segundos;
+    }
   }
 
- /* if (segundos % 5 == 0 && segundos != ultimoSegundoEnviado)
+  if (segundos % 5 == 0 && segundos != ultimoSegundoEnviado)
   {
     serialSendStatus();
     ultimoSegundoEnviado = segundos;
-  }*/
+  }
 
   processCommand();
 	 
@@ -431,27 +435,13 @@ void serialSendStatus()
 	espSerial.println();
 }
 
-const FaseIndex* getPrograma() {
-  if (programa == 1) {
-    return programaLargo;
-  } else if (programa == 2) {
-    return programaCorto;
-  } else if (programa == 3) {
-    return programaVaciado;
-  } else if (programa == 4) {
-    return programaCorto2;
-  }else {
-    return programaLargo; // Por defecto
-  }
-}
-
 void loopLavadora()
 {
 
   if (sttone == 0)
   {
     startbuzzerPWM();
-      bloqueoPuerta();
+    bloqueoPuerta();
     sttone = 1;
   }
 
@@ -478,14 +468,14 @@ void loopLavadora()
   FaseIndex fase = fases[faseActual];
   switch (fase.funcion) {
     case LLENADO:
-      //setJabonera();
+      setJabonera();
       llenado();
       lavado();
       break;
     case LLENADO_PRE_LAVADO:
     case LLENADO_LAVADO:
     case LLENADO_SUAVIZANTE:
-      //setJabonera();
+      setJabonera();
       llenado();
       if (tamborVacio == 0)
       {
@@ -495,19 +485,15 @@ void loopLavadora()
       }
       break;
     case LAVADO:
-      apagarLlenado();
       lavado();
       break;
     case VACIADO:
-      //apagarLlenado();
       vaciado();
       break;
     case CENTRIFUGAR:
-      apagarLlenado();
       centrifugar();
       break;
     case ESPERA:
-      apagarLlenado();
       break;
     default:
      Serial.println("FUNCION NO RECONOCIDA");
@@ -585,15 +571,7 @@ void processCommand()
   }
 }
 
-void calcTotalFases(){
- 
-  switch (programa) {
-    case 1: totalFases = 25;break;
-    case 2: totalFases = 16;break;
-    case 3: totalFases = 1; break;
-    case 4: totalFases = 8; break;
-  }
-}
+
 void startLavadora(const char* programa)
 {
 
@@ -608,18 +586,21 @@ void startLavadora(const char* programa)
   {
     setProgramaVaciado();
   }
+  else if (strcmp(programa, "centrifugar") == 0)
+  {
+    setProgramaCentrifugar();
+  }
   else
   {
     setProgramaLargo();
   }
 
   calcTiempoTotal();
-  calcTotalFases();
   resetTimer();
   sttone = 0;
   encendida = 1;
-
 }
+
 void stopLavadora()
 {
   encendida = 0;
@@ -639,24 +620,35 @@ void resetTimer()
 
 void setProgramaLargo()
 {
- programa = 1;
-   fases = getPrograma();
+   programa = 1;
+   fases = programaLargo;
+   totalFases = 25;
 }
 
 void setProgramaCorto()
 {
- programa = 2;
-   fases = getPrograma();
-}
-
-void setProgramaCorto2()
-{
-  programa = 4;
-  fases = getPrograma();
+   programa = 2;
+   fases = programaCorto;
+   totalFases = 16;
 }
 
 void setProgramaVaciado()
 {
   programa = 3;
-    fases = getPrograma();
+  fases = programaVaciado;
+  totalFases = 1;
+}
+
+void setProgramaCorto2()
+{
+  programa = 4;
+  fases = programaCorto2;
+  totalFases = 8;
+}
+
+void setProgramaCentrifugar()
+{
+  programa = 5;
+  fases = programaCentrifugar;
+  totalFases = 2;
 }
