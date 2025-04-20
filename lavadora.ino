@@ -76,7 +76,7 @@ const FaseIndex programaCorto2[] = {
 };
 
 const FaseIndex programaCorto[] = {
-  {LAVADO, 15}, {LLENADO, 1}, {LAVADO, 1}, {VACIADO, 1},
+  {LLENADO_PRE_LAVADO, 4}, {LLENADO_PRE_LAVADO, 1}, {LAVADO, 1}, {VACIADO, 1},
   {LLENADO_SUAVIZANTE, 1}, {LLENADO, 1}, {LAVADO, 1}, {VACIADO, 1},
   {LLENADO_SUAVIZANTE, 1}, {LLENADO, 1}, {LAVADO, 1}, {VACIADO, 1},
   {CENTRIFUGAR, 2}, {ESPERA, 2}, {VACIADO, 1}, {CENTRIFUGAR, 2}
@@ -149,6 +149,7 @@ void calcTiempoTotal()
     case 2: length = sizeof(programaCorto) / sizeof(FaseIndex); break;
     case 3: length = sizeof(programaVaciado) / sizeof(FaseIndex); break;
     case 4: length = sizeof(programaCorto2) / sizeof(FaseIndex); break;
+    case 5: length = sizeof(programaCentrifugar) / sizeof(FaseIndex); break;
   }
 
   tiempoTotal = 0;
@@ -184,7 +185,7 @@ void lavado()
     digitalWrite(vel2, HIGH);
     delay(100);
     digitalWrite(bomba, HIGH);
-    digitalWrite(val1, HIGH);
+
   }
   else if (paso == 1)
   { // PASO DE LAVADO 1  CICLO DE MOTOR APAGADO
@@ -467,13 +468,13 @@ void loopLavadora()
   
   FaseIndex fase = fases[faseActual];
   switch (fase.funcion) {
-    case LLENADO:
+    case LLENADO_LAVADO:
       setJabonera();
       llenado();
       lavado();
       break;
     case LLENADO_PRE_LAVADO:
-    case LLENADO_LAVADO:
+    case LLENADO:
     case LLENADO_SUAVIZANTE:
       setJabonera();
       llenado();
@@ -485,12 +486,15 @@ void loopLavadora()
       }
       break;
     case LAVADO:
+      digitalWrite(val1, HIGH);
       lavado();
       break;
     case VACIADO:
+      digitalWrite(val1, HIGH);
       vaciado();
       break;
     case CENTRIFUGAR:
+      digitalWrite(val1, HIGH);
       centrifugar();
       break;
     case ESPERA:
