@@ -76,10 +76,10 @@ const FaseIndex programaCorto2[] = {
 };
 
 const FaseIndex programaCorto[] = {
-  {LLENADO_PRE_LAVADO, 4}, {LLENADO_PRE_LAVADO, 1}, {LAVADO, 1}, {VACIADO, 1},
-  {LLENADO_SUAVIZANTE, 1}, {LLENADO, 1}, {LAVADO, 1}, {VACIADO, 1},
-  {LLENADO_SUAVIZANTE, 1}, {LLENADO, 1}, {LAVADO, 1}, {VACIADO, 1},
-  {CENTRIFUGAR, 2}, {ESPERA, 2}, {VACIADO, 1}, {CENTRIFUGAR, 2}
+  {LLENADO_PRE_LAVADO, 5}, {LLENADO, 5}, {LAVADO, 8}, {VACIADO, 1},
+  {LLENADO_LAVADO, 5}, {LLENADO, 5}, {LAVADO, 8}, {VACIADO, 1},
+  {LLENADO_SUAVIZANTE, 5}, {LLENADO, 5}, {LAVADO, 8}, {VACIADO, 1},
+  {CENTRIFUGAR, 10}, {ESPERA, 2}, {VACIADO, 1}, {CENTRIFUGAR, 5}
 };
 
 const FaseIndex programaVaciado[] = {
@@ -620,6 +620,7 @@ void resetTimer()
   hora = 0;
   paso = 0;
   tiempoTranscurrido = 0;
+  faseActual = 0;
 }
 
 void setProgramaLargo()
