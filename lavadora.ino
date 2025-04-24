@@ -87,7 +87,7 @@ const FaseIndex programaVaciado[] = {
 };
 
 const FaseIndex programaCentrifugar[] = {
-  {VACIADO, 1},{CENTRIFUGAR, 5},
+ {CENTRIFUGAR, 5}, {VACIADO, 1},
 };
 
 // CONFIGURACION DE PINES
@@ -237,7 +237,7 @@ void centrifugar()
 { // FUNCION DE CENTRIFUGADO
 
   digitalWrite(val1, HIGH);
-  digitalWrite(giro, HIGH); // AH
+  digitalWrite(giro, LOW); // AH
 
 
   if (acelerado == 0)
@@ -251,8 +251,9 @@ void centrifugar()
     delay(10);
     digitalWrite(vel1, LOW);
     digitalWrite(vel2, LOW);
+      delay(10);
     digitalWrite(giro, LOW); // AH
-    delay(300);
+    delay(100);
     digitalWrite(motor, LOW);
     acelerado = 1;
   }
@@ -265,7 +266,6 @@ void centrifugar()
   digitalWrite(vel2, LOW);
   delay(100);
   digitalWrite(bomba, LOW); // ACTIVAMOS LA BOMBA DE DESAGOTE
-  delay(100);
   digitalWrite(motor, LOW);
 }
 
