@@ -29,9 +29,9 @@ int bloqueo = 10; // BLOQUEO DE PUERTA
 int alarma = 2;   // ALARMA BUZZER PARA FIN DE LAVADO
 int acelerado = 0;
 int jabonera = 3;
-int jabPosLavado = 1100;
-int jabPosSuavizante = 900;
 int jabPosPreLavado = 750;
+int jabPosLavado = 900;
+int jabPosSuavizante = 1100;
 int jabPosLavandina = 1350;
 
 int tamborVacio = 0;
@@ -119,7 +119,7 @@ void setup()
   digitalWrite(bomba, HIGH);
   digitalWrite(bloqueo, HIGH); // BLOQUEO DE PUERTA
   jabservo.attach(jabonera);
-
+  jabservo.write(jabPosPreLavado);
   powerOnbuzzerPWM();
   logMessage("SETUP END");
 }
@@ -363,6 +363,17 @@ void calibrarJabonera(int value)
   jabservo.write(value);
 }
 
+void calibrarJaboneraTest()
+{
+ jabservo.write(jabPosPreLavado);
+ delay(3000);
+  jabservo.write(jabPosLavado);
+   delay(3000);
+  jabservo.write(jabPosSuavizante);
+     delay(3000);
+  jabservo.write(jabPosLavandina);
+}
+
 void setJabonera()
 {
   FaseIndex fase = fases[faseActual];
@@ -469,6 +480,7 @@ void loopLavadora()
   FaseIndex fase = fases[faseActual];
   switch (fase.funcion) {
     case LLENADO_LAVADO:
+    acelerado = 0;
       setJabonera();
       llenado();
       lavado();
@@ -476,6 +488,7 @@ void loopLavadora()
     case LLENADO_PRE_LAVADO:
     case LLENADO:
     case LLENADO_SUAVIZANTE:
+     acelerado = 0;
       setJabonera();
       llenado();
       if (tamborVacio == 0)
@@ -486,10 +499,12 @@ void loopLavadora()
       }
       break;
     case LAVADO:
+     acelerado = 0;
       digitalWrite(val1, HIGH);
       lavado();
       break;
     case VACIADO:
+     acelerado = 0;
       digitalWrite(val1, HIGH);
       vaciado();
       break;
@@ -559,15 +574,25 @@ void processCommand()
   }
   else if (strcmp(command, "jabon") == 0)
   {
-    	if (doc.containsKey("val")) {
-       const int val = doc["val"];
-       calibrarJabonera(val);
-	   logMessage("{\"status\":\"ok\",\"command\":\"jabon\"}");
-    }else {
-          logMessage("{\"error\":\"Invalid Command Programa no definido\"}");
-    return;
-    }
     
+    calibrarJaboneraTest();
+    return;
+    
+  }
+    else if (strcmp(command, "jabon1") == 0)
+  {
+    calibrarJabonera(jabPosPreLavado);
+    return;
+  }
+    else if (strcmp(command, "jabon2") == 0)
+  {
+    calibrarJabonera(jabPosLavado);
+    return;
+  }
+  else if (strcmp(command, "jabon3") == 0)
+  {
+    calibrarJabonera(jabPosSuavizante);
+    return;
   }
   else
   {
