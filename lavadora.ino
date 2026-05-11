@@ -1,6 +1,11 @@
 #include <ServoTimer2.h>
 #include <ArduinoJson.h>
 #include <NeoSWSerial.h>
+#include <string.h>
+#include <avr/wdt.h>
+#include "recovery_eeprom.h"
+#include "programas_lavadora.h"
+#include "motor_service.h"
 					
 NeoSWSerial espSerial(15, 16); //RX TX
 bool led = true;
@@ -42,53 +47,207 @@ int faseActual = 0;
 int llenadoError = 0;
 int programa = 1;
 
-enum FaseNombreIndex {
-  LLENADO_PRE_LAVADO = 0,
-  LLENADO_LAVADO,
-  LLENADO_SUAVIZANTE,
-  LLENADO,
-  LAVADO,
-  VACIADO,
-  CENTRIFUGAR,
-  ESPERA
-};
-
-struct FaseIndex {
-  uint8_t funcion;
-  uint8_t tiempo; // en minutos
-};
-
 const FaseIndex* fases = nullptr;
 
-// FASES DE LAVADO, FUNCION - TIEMPO en minutos
-const FaseIndex programaLargo[] = {
-  {LLENADO_PRE_LAVADO, 5}, {LLENADO, 5}, {LAVADO, 8}, {VACIADO, 1},
-  {LLENADO_PRE_LAVADO, 5}, {LLENADO, 5}, {LAVADO, 8}, {VACIADO, 1},
-  {CENTRIFUGAR, 5}, {LLENADO_LAVADO, 5}, {LLENADO, 5}, {LAVADO, 8},
-  {VACIADO, 1}, {LLENADO_SUAVIZANTE, 5}, {LLENADO, 5}, {LAVADO, 8},
-  {VACIADO, 1}, {LLENADO_SUAVIZANTE, 5}, {LLENADO, 5}, {LAVADO, 8},
-  {VACIADO, 1}, {CENTRIFUGAR, 10}, {ESPERA, 2}, {VACIADO, 1}, {CENTRIFUGAR, 10}
-};
+static const unsigned long FILL_TIMEOUT_MS = 10UL * 60UL * 1000UL;
+static const unsigned long EEPROM_SAVE_INTERVAL_MS = 30000UL;
 
-const FaseIndex programaCorto2[] = {
-  {LLENADO_PRE_LAVADO, 5}, {LLENADO, 5}, {LAVADO, 15}, {VACIADO, 1},
-  {CENTRIFUGAR, 5},{ESPERA, 2},{CENTRIFUGAR, 3}, {VACIADO, 1},
-};
+bool g_recovery_ui_pending = false;
+char g_recovery_reason[16] = "";
+uint8_t g_last_error_code = 0;
+unsigned long g_last_eeprom_save_ms = 0;
+unsigned long g_fill_phase_start_ms = 0;
+bool g_fill_has_seen_full = false;
+int g_prev_fase_for_fill = -1;
 
-const FaseIndex programaCorto[] = {
-  {LLENADO_PRE_LAVADO, 5}, {LLENADO, 5}, {LAVADO, 8}, {VACIADO, 1},
-  {LLENADO_LAVADO, 5}, {LLENADO, 5}, {LAVADO, 8}, {VACIADO, 1},
-  {LLENADO_SUAVIZANTE, 5}, {LLENADO, 5}, {LAVADO, 8}, {VACIADO, 1},
-  {CENTRIFUGAR, 10}, {ESPERA, 2}, {VACIADO, 1}, {CENTRIFUGAR, 5}
+struct ErrorRingEntry {
+  unsigned long t_ms;
+  uint8_t code;
+  uint8_t fase;
 };
+static ErrorRingEntry g_err_ring[3];
+static uint8_t g_err_ring_pos = 0;
 
-const FaseIndex programaVaciado[] = {
-  {VACIADO, 2},
-};
+void logMessage(String msg);
+bool startLavadora(const char* programa);
+void errorbuzzerPWM(void);
+void setProgramaLargo(void);
+void setProgramaCorto(void);
+void setProgramaVaciado(void);
+void setProgramaCorto2(void);
+void setProgramaCentrifugar(void);
+void calcTiempoTotal(void);
 
-const FaseIndex programaCentrifugar[] = {
- {CENTRIFUGAR, 5}, {VACIADO, 1},
-};
+static void push_error_ring(uint8_t code, uint8_t fase) {
+  g_err_ring[g_err_ring_pos].t_ms = millis();
+  g_err_ring[g_err_ring_pos].code = code;
+  g_err_ring[g_err_ring_pos].fase = fase;
+  g_err_ring_pos = (uint8_t)((g_err_ring_pos + 1) % 3);
+}
+
+static bool fase_es_llenado(uint8_t fn) {
+  return fn == LLENADO_PRE_LAVADO || fn == LLENADO_LAVADO || fn == LLENADO_SUAVIZANTE || fn == LLENADO;
+}
+
+static void reset_fill_watch_for_phase_change(void) {
+  g_fill_phase_start_ms = millis();
+  g_fill_has_seen_full = false;
+}
+
+static void save_checkpoint_runtime(uint8_t rec_state, uint8_t err_code) {
+  WashCheckpoint cp;
+  memset(&cp, 0, sizeof(cp));
+  cp.recovery_state = rec_state;
+  cp.programa = (uint8_t)programa;
+  cp.totalFases_cp = (uint8_t)totalFases;
+  cp.faseActual = (uint8_t)faseActual;
+  if (minuto < 0) minuto = 0;
+  if (minuto > 255) minuto = 255;
+  if (segundos < 0) segundos = 0;
+  if (segundos > 255) segundos = 255;
+  if (paso < 0) paso = 0;
+  if (paso > 255) paso = 255;
+  cp.minuto = (uint8_t)minuto;
+  cp.segundos = (uint8_t)segundos;
+  cp.paso = (uint8_t)paso;
+  cp.acelerado = (uint8_t)(acelerado ? 1 : 0);
+  cp.sttone = (uint8_t)(sttone ? 1 : 0);
+  if (tiempoTranscurrido < 0) tiempoTranscurrido = 0;
+  if (tiempoTranscurrido > 65535) tiempoTranscurrido = 65535;
+  cp.tiempoTranscurrido = (uint16_t)tiempoTranscurrido;
+  cp.last_error_code = err_code;
+  cp.tambor_saved = (uint8_t)(tamborVacio ? 1 : 0);
+  checkpoint_write(&cp);
+  g_last_eeprom_save_ms = millis();
+}
+
+static void maybe_throttle_save_running(void) {
+  if (!encendida || fases == nullptr || totalFases <= 0)
+    return;
+  unsigned long now = millis();
+  if (now - g_last_eeprom_save_ms < EEPROM_SAVE_INTERVAL_MS)
+    return;
+  save_checkpoint_runtime(REC_RUNNING, ERR_NONE);
+}
+
+static uint8_t total_fases_for_programa_id(int p) {
+  switch (p) {
+    case 1: return (uint8_t)LAV_FASES_LARGO;
+    case 2: return (uint8_t)LAV_FASES_CORTO;
+    case 3: return (uint8_t)LAV_FASES_VACIADO;
+    case 4: return (uint8_t)LAV_FASES_CORTO2;
+    case 5: return (uint8_t)LAV_FASES_CENTRIF;
+    default: return 0;
+  }
+}
+
+static bool checkpoint_matches_program(const WashCheckpoint* cp) {
+  return cp->totalFases_cp == total_fases_for_programa_id(cp->programa);
+}
+
+static void send_boot_recovery_json(const WashCheckpoint* cp) {
+  JsonDocument doc;
+  doc["recovery_pending"] = true;
+  doc["reason"] = (cp->recovery_state == REC_ERROR) ? "error" : "power_loss";
+  doc["programa"] = cp->programa;
+  doc["faseActual"] = cp->faseActual;
+  doc["totalFases"] = cp->totalFases_cp;
+  doc["minuto"] = cp->minuto;
+  doc["segundo"] = cp->segundos;
+  doc["last_error_code"] = cp->last_error_code;
+  doc["tambor_saved"] = cp->tambor_saved;
+  String out;
+  serializeJson(doc, out);
+  logMessage(out);
+}
+
+static void trigger_error_checkpoint(uint8_t err_code, const char* json_line) {
+  if (llenadoError)
+    return;
+  save_checkpoint_runtime(REC_ERROR, err_code);
+  g_last_error_code = err_code;
+  push_error_ring(err_code, (uint8_t)faseActual);
+  llenadoError = 1;
+  encendida = false;
+  hasError = true;
+  errorbuzzerPWM();
+  logMessage(json_line);
+}
+
+void discard_recovery_state(void) {
+  checkpoint_clear();
+  g_recovery_ui_pending = false;
+  g_recovery_reason[0] = '\0';
+  llenadoError = 0;
+  g_last_error_code = 0;
+  g_prev_fase_for_fill = -1;
+  motor_reset_service_state();
+}
+
+static bool restore_from_checkpoint(const WashCheckpoint* cp, bool ack_centrifuge) {
+  if (!checkpoint_matches_program(cp))
+    return false;
+  if (cp->faseActual >= cp->totalFases_cp)
+    return false;
+
+  if (cp->programa == 1)
+    setProgramaLargo();
+  else if (cp->programa == 2)
+    setProgramaCorto();
+  else if (cp->programa == 3)
+    setProgramaVaciado();
+  else if (cp->programa == 4)
+    setProgramaCorto2();
+  else if (cp->programa == 5)
+    setProgramaCentrifugar();
+  else
+    return false;
+
+  calcTiempoTotal();
+
+  FaseIndex f0 = fases[cp->faseActual];
+  if (f0.funcion == CENTRIFUGAR && !ack_centrifuge)
+    return false;
+
+  faseActual = cp->faseActual;
+  minuto = cp->minuto;
+  segundos = cp->segundos;
+  paso = cp->paso;
+  acelerado = cp->acelerado ? 1 : 0;
+  sttone = cp->sttone ? 1 : 0;
+  tiempoTranscurrido = (int)cp->tiempoTranscurrido;
+  llenadoError = 0;
+  hora = millis();
+  contador = 0;
+  ultimoSegundoLavadora = -1;
+  ultimoSegundoEnviado = -1;
+
+  g_prev_fase_for_fill = -1;
+  g_recovery_ui_pending = false;
+  g_recovery_reason[0] = '\0';
+  g_last_error_code = 0;
+  motor_reset_service_state();
+
+  encendida = true;
+  save_checkpoint_runtime(REC_RUNNING, ERR_NONE);
+  return true;
+}
+
+static const char* nombre_fase_actual_json(void) {
+  if (!encendida || fases == nullptr || faseActual < 0 || faseActual >= totalFases)
+    return "idle";
+  switch (fases[faseActual].funcion) {
+    case LLENADO_PRE_LAVADO: return "llenado_pre";
+    case LLENADO_LAVADO: return "llenado_lavado";
+    case LLENADO_SUAVIZANTE: return "llenado_suav";
+    case LLENADO: return "llenado";
+    case LAVADO: return "lavado";
+    case VACIADO: return "vaciado";
+    case CENTRIFUGAR: return "centrifugar";
+    case ESPERA: return "espera";
+    default: return "desconocido";
+  }
+}
 
 // CONFIGURACION DE PINES
 void setup()
@@ -121,6 +280,25 @@ void setup()
   jabservo.attach(jabonera);
   jabservo.write(jabPosPreLavado);
   powerOnbuzzerPWM();
+
+  wdt_disable();
+  delay(10);
+  wdt_enable(WDTO_8S);
+
+  WashCheckpoint cpBoot;
+  if (checkpoint_read(&cpBoot) && (cpBoot.recovery_state == REC_RUNNING || cpBoot.recovery_state == REC_ERROR)) {
+    g_recovery_ui_pending = true;
+    if (cpBoot.recovery_state == REC_ERROR) {
+      strncpy(g_recovery_reason, "error", sizeof(g_recovery_reason) - 1);
+      g_recovery_reason[sizeof(g_recovery_reason) - 1] = '\0';
+      g_last_error_code = cpBoot.last_error_code;
+    } else {
+      strncpy(g_recovery_reason, "power_loss", sizeof(g_recovery_reason) - 1);
+      g_recovery_reason[sizeof(g_recovery_reason) - 1] = '\0';
+    }
+    send_boot_recovery_json(&cpBoot);
+  }
+
   logMessage("SETUP END");
 }
 
@@ -145,11 +323,11 @@ void calcTiempoTotal()
 {
   int length = 0;
   switch (programa) {
-    case 1: length = sizeof(programaLargo) / sizeof(FaseIndex); break;
-    case 2: length = sizeof(programaCorto) / sizeof(FaseIndex); break;
-    case 3: length = sizeof(programaVaciado) / sizeof(FaseIndex); break;
-    case 4: length = sizeof(programaCorto2) / sizeof(FaseIndex); break;
-    case 5: length = sizeof(programaCentrifugar) / sizeof(FaseIndex); break;
+    case 1: length = LAV_FASES_LARGO; break;
+    case 2: length = LAV_FASES_CORTO; break;
+    case 3: length = LAV_FASES_VACIADO; break;
+    case 4: length = LAV_FASES_CORTO2; break;
+    case 5: length = LAV_FASES_CENTRIF; break;
   }
 
   tiempoTotal = 0;
@@ -173,104 +351,9 @@ void llenado()
   }
 }
 
-// FUNCION DE LAVADO
-void lavado()
-{
-
-  if (paso == 0)
-  {
-    digitalWrite(motor, HIGH);
-    delay(100);
-    digitalWrite(vel1, HIGH);
-    digitalWrite(vel2, HIGH);
-    delay(100);
-    digitalWrite(bomba, HIGH);
-
-  }
-  else if (paso == 1)
-  { // PASO DE LAVADO 1  CICLO DE MOTOR APAGADO
-    digitalWrite(motor, HIGH);
-    delay(100);
-    digitalWrite(giro, HIGH);
-  }
-  else if (paso == 2)
-  { // PASO DE LAVADO 2  CICLO DE GIRO EN EL SENTIDO CONTRARIO A LAS MANECILLAS DEL RELOJ
-    digitalWrite(giro, HIGH);
-    delay(100);
-    digitalWrite(motor, LOW);
-  }
-  else if (paso == 3)
-  { // PASO DE LAVADO 3  CICLO DE MOTOR APAGADO
-    digitalWrite(motor, HIGH);
-    delay(100);
-    digitalWrite(giro, LOW);
-  }
-  else if (paso == 4)
-  { // PASO DE LAVADO 4  CICLO DE GIRO EN EL SENTIDO DE LAS MANECILLAS DEL RELOJ
-    digitalWrite(giro, LOW);
-    delay(100);
-    digitalWrite(motor, LOW);
-  }
-  if (paso > 4)
-  { // RESETEAR LOS PASOS PARA REPETIR EL CICLO DE LAVADO DURANTE EL TIEMPO ESTIMADO
-    paso = 0;
-  }
-}
-
-// FUNCION DE VACIADO DE TANQUE
-void vaciado()
-{
-  digitalWrite(val1, HIGH); // APAGAMOS FUNCIONES QUE NO NECESITAMOS
-  delay(100);
-  digitalWrite(giro, HIGH);
-  delay(100);
-  digitalWrite(vel1, HIGH);
-  delay(100);
-  digitalWrite(vel2, HIGH);
-  delay(100);
-  digitalWrite(motor, HIGH);
-  delay(100);
-  digitalWrite(bomba, LOW); // ENCENDIDO DE LA BOMBA PARA VACIAR EL TANQUE
-}
-
-void centrifugar()
-{ // FUNCION DE CENTRIFUGADO
-
-  digitalWrite(val1, HIGH);
-  digitalWrite(giro, LOW); // AH
-
-
-  if (acelerado == 0)
-  {
-    digitalWrite(vel1, HIGH);
-    digitalWrite(vel2, HIGH);
-    delay(1000);
-    digitalWrite(motor, LOW);
-    delay(3000);
-    digitalWrite(motor, HIGH);
-    delay(10);
-    digitalWrite(vel1, LOW);
-    digitalWrite(vel2, LOW);
-      delay(10);
-    digitalWrite(giro, LOW); // AH
-    delay(100);
-    digitalWrite(motor, LOW);
-    acelerado = 1;
-  }
-
-
-  // SENTIDO DE GIRO EN CENTRIFUGADO , EL CENTRIFUGADO FUNCIONA BIEN CON 1 SENTIDO NO FUNCIONA DE LA MISMA MANERA EN LOS DOS
-  //  ACTIVAMOS LOS 2 RELES DE CAMBIOI DE VELOCDIAD
-  digitalWrite(vel1, LOW);
-  delay(100);
-  digitalWrite(vel2, LOW);
-  delay(100);
-  digitalWrite(bomba, LOW); // ACTIVAMOS LA BOMBA DE DESAGOTE
-  digitalWrite(motor, LOW);
-}
-
 void apagar()
 {
+  motor_reset_service_state();
 
   digitalWrite(val1, HIGH);
   digitalWrite(giro, HIGH);
@@ -287,6 +370,7 @@ void bloqueoPuerta(){
 
 void buzzerEnd()
 {
+  wdt_disable();
   buzzerPWM(alarma, 880, 100);
   delay(600);
   nobuzzerPWM(alarma);
@@ -301,16 +385,19 @@ void buzzerEnd()
   nobuzzerPWM(alarma);
   buzzerPWM(alarma, 880, 100);
   nobuzzerPWM(alarma);
+  wdt_enable(WDTO_8S);
 }
 
 // TONO INICIO
 void startbuzzerPWM()
 {
+  wdt_disable();
   buzzerPWM(alarma, 880, 200);
   delay(500);
   buzzerPWM(alarma, 1000, 200);
   delay(500);
   nobuzzerPWM(alarma);
+  wdt_enable(WDTO_8S);
 }
 
 void powerOnbuzzerPWM()
@@ -322,11 +409,13 @@ void powerOnbuzzerPWM()
 
 void errorbuzzerPWM()
 {
+  wdt_disable();
   buzzerPWM(alarma, 440, 500);
   delay(1000);
   buzzerPWM(alarma, 440, 500);
   delay(1000);
   nobuzzerPWM(alarma);
+  wdt_enable(WDTO_8S);
 }
 
 void loopTimer()
@@ -365,13 +454,15 @@ void calibrarJabonera(int value)
 
 void calibrarJaboneraTest()
 {
- jabservo.write(jabPosPreLavado);
- delay(3000);
+  wdt_disable();
+  jabservo.write(jabPosPreLavado);
+  delay(3000);
   jabservo.write(jabPosLavado);
-   delay(3000);
+  delay(3000);
   jabservo.write(jabPosSuavizante);
-     delay(3000);
+  delay(3000);
   jabservo.write(jabPosLavandina);
+  wdt_enable(WDTO_8S);
 }
 
 void setJabonera()
@@ -396,10 +487,10 @@ void setJabonera()
 
 void loop()
 {
+  processCommand();
 
   tamborVacio = digitalRead(presostato);
 
-  /////////////////////////////////////////// control tiempos
   loopTimer();
 
   if (encendida)
@@ -409,6 +500,8 @@ void loop()
       loopLavadora();
       ultimoSegundoLavadora = segundos;
     }
+    motor_refresh_outputs();
+    maybe_throttle_save_running();
   }
 
   if (segundos % 5 == 0 && segundos != ultimoSegundoEnviado)
@@ -417,9 +510,7 @@ void loop()
     ultimoSegundoEnviado = segundos;
   }
 
-  processCommand();
-	 
-
+  wdt_reset();
 }
 
 void logMessage(String msg) {
@@ -439,7 +530,16 @@ void serialSendStatus()
 	doc["Paso"] = paso;
 	doc["TiempoTotal"] = tiempoTotal;
   int tiempoRestante = tiempoTotal - tiempoTranscurrido;
-  doc["TiempoRestante"] = tiempoRestante;
+	doc["TiempoRestante"] = tiempoRestante;
+  doc["ProgramaId"] = programa;
+  doc["Fase"] = nombre_fase_actual_json();
+  doc["recovery_pending"] = g_recovery_ui_pending;
+  if (g_recovery_reason[0] != '\0')
+    doc["recovery_reason"] = g_recovery_reason;
+  doc["last_error_code"] = g_last_error_code;
+  doc["ErrRing0"] = g_err_ring[0].code;
+  doc["ErrRing1"] = g_err_ring[1].code;
+  doc["ErrRing2"] = g_err_ring[2].code;
   
   serializeJson(doc, Serial);
 	serializeJson(doc, espSerial);
@@ -459,58 +559,60 @@ void loopLavadora()
 
   if (llenadoError)
   {
-    errorbuzzerPWM();
-    hasError = true;
-    Serial.println("LLENADO ERROR");
-    logMessage("{\"error\":\"Error de llenado\"}");
     apagar();
     return;
   }
-
-
 
   if (faseActual >= totalFases) {
     logMessage("FINAL");
     encendida = false;
+    checkpoint_clear();
+    g_recovery_ui_pending = false;
+    g_recovery_reason[0] = '\0';
     buzzerEnd();
     apagar();
     return;
   }
-  
+
+  if (faseActual != g_prev_fase_for_fill) {
+    g_prev_fase_for_fill = faseActual;
+    reset_fill_watch_for_phase_change();
+  }
+
   FaseIndex fase = fases[faseActual];
+
+  if (fase_es_llenado(fase.funcion) && !g_fill_has_seen_full) {
+    if (millis() - g_fill_phase_start_ms > FILL_TIMEOUT_MS) {
+      trigger_error_checkpoint(ERR_FILL_TIMEOUT, "{\"error\":\"Timeout de llenado\",\"code\":1}");
+      return;
+    }
+  }
+
   switch (fase.funcion) {
     case LLENADO_LAVADO:
-    acelerado = 0;
-      setJabonera();
-      llenado();
-      lavado();
+      acelerado = 0;
+      if (tamborVacio == 0)
+        g_fill_has_seen_full = true;
       break;
     case LLENADO_PRE_LAVADO:
     case LLENADO:
     case LLENADO_SUAVIZANTE:
-     acelerado = 0;
-      setJabonera();
-      llenado();
+      acelerado = 0;
       if (tamborVacio == 0)
       {
+        g_fill_has_seen_full = true;
         minuto = minuto + 1;
         segundos = 0;
         logMessage("AVANCE TAMBOR LLENO");
       }
       break;
     case LAVADO:
-     acelerado = 0;
-      digitalWrite(val1, HIGH);
-      lavado();
+      acelerado = 0;
       break;
     case VACIADO:
-     acelerado = 0;
-      digitalWrite(val1, HIGH);
-      vaciado();
+      acelerado = 0;
       break;
     case CENTRIFUGAR:
-      digitalWrite(val1, HIGH);
-      centrifugar();
       break;
     case ESPERA:
       break;
@@ -519,6 +621,7 @@ void loopLavadora()
   }
 
   if (minuto >= fase.tiempo) {
+    save_checkpoint_runtime(REC_RUNNING, ERR_NONE);
     minuto = 0;
     faseActual++;
     paso = 0;
@@ -528,25 +631,27 @@ void loopLavadora()
 
 void processCommand()
 {
-
-  if (!espSerial.available())
-    return false;  // No hay datos disponibles
-  
-  //String input = source->readStringUntil('\n');
+  Stream* input = nullptr;
+  if (espSerial.available())
+    input = &espSerial;
+  else if (Serial.available())
+    input = &Serial;
+  if (!input)
+    return;
 
   JsonDocument doc;
-  DeserializationError error = deserializeJson(doc, espSerial);
+  DeserializationError error = deserializeJson(doc, *input);
   
   if (error) {
     logMessage("{\"error\":\"Invalid JSON code 1\"}");
      Serial.println(error.c_str());
-	  return false;
+	  return;
   }
 
   
 	if (!doc.containsKey("command")) {
 	  logMessage("{\"error\":\"Missing 'command' key\"}");
-	  return false;
+	  return;
 	}
   const char* command = doc["command"];
   
@@ -557,9 +662,9 @@ void processCommand()
 
 
 	if (doc.containsKey("programa")) {
-       const char* programa = doc["programa"];
-       startLavadora(programa);
-	   logMessage("{\"status\":\"ok\",\"command\":\"start\"}");
+       const char* prog = doc["programa"];
+       if (startLavadora(prog))
+         logMessage("{\"status\":\"ok\",\"command\":\"start\"}");
     }else {
           logMessage("{\"error\":\"Invalid Command Programa no definido\"}");
     return;
@@ -571,6 +676,34 @@ void processCommand()
   {
     stopLavadora();
 	 logMessage("{\"status\":\"ok\",\"command\":\"stop\"}");
+  }
+  else if (strcmp(command, "discard_recovery") == 0)
+  {
+    discard_recovery_state();
+    logMessage("{\"status\":\"ok\",\"command\":\"discard_recovery\"}");
+  }
+  else if (strcmp(command, "resume") == 0)
+  {
+    bool confirm = doc["confirm"].as<bool>();
+    bool ackCent = doc["ack_centrifuge"].as<bool>();
+    if (!confirm) {
+      logMessage("{\"error\":\"resume requiere confirm:true\"}");
+      return;
+    }
+    WashCheckpoint cp;
+    if (!checkpoint_read(&cp)) {
+      logMessage("{\"error\":\"Sin checkpoint valido\"}");
+      return;
+    }
+    if (cp.recovery_state != REC_RUNNING && cp.recovery_state != REC_ERROR) {
+      logMessage("{\"error\":\"No hay recuperacion pendiente\"}");
+      return;
+    }
+    if (!restore_from_checkpoint(&cp, ackCent)) {
+      logMessage("{\"error\":\"No se pudo reanudar; si la fase es centrifugar envie ack_centrifuge:true\"}");
+      return;
+    }
+    logMessage("{\"status\":\"ok\",\"command\":\"resume\"}");
   }
   else if (strcmp(command, "jabon") == 0)
   {
@@ -601,8 +734,12 @@ void processCommand()
 }
 
 
-void startLavadora(const char* programa)
+bool startLavadora(const char* programa)
 {
+  if (g_recovery_ui_pending) {
+    logMessage("{\"error\":\"Hay recuperacion pendiente: use discard_recovery o resume confirm:true\"}");
+    return false;
+  }
 
   if (strcmp(programa, "corto") == 0)
   {
@@ -628,11 +765,17 @@ void startLavadora(const char* programa)
   resetTimer();
   sttone = 0;
   encendida = 1;
+  g_prev_fase_for_fill = -1;
+  save_checkpoint_runtime(REC_RUNNING, ERR_NONE);
+  return true;
 }
 
 void stopLavadora()
 {
   encendida = 0;
+  checkpoint_clear();
+  g_recovery_ui_pending = false;
+  g_recovery_reason[0] = '\0';
   apagar();
 }
 
@@ -646,39 +789,41 @@ void resetTimer()
   paso = 0;
   tiempoTranscurrido = 0;
   faseActual = 0;
+  g_prev_fase_for_fill = -1;
+  motor_reset_service_state();
 }
 
 void setProgramaLargo()
 {
    programa = 1;
    fases = programaLargo;
-   totalFases = 25;
+   totalFases = LAV_FASES_LARGO;
 }
 
 void setProgramaCorto()
 {
    programa = 2;
    fases = programaCorto;
-   totalFases = 16;
+   totalFases = LAV_FASES_CORTO;
 }
 
 void setProgramaVaciado()
 {
   programa = 3;
   fases = programaVaciado;
-  totalFases = 1;
+  totalFases = LAV_FASES_VACIADO;
 }
 
 void setProgramaCorto2()
 {
   programa = 4;
   fases = programaCorto2;
-  totalFases = 8;
+  totalFases = LAV_FASES_CORTO2;
 }
 
 void setProgramaCentrifugar()
 {
   programa = 5;
   fases = programaCentrifugar;
-  totalFases = 2;
+  totalFases = LAV_FASES_CENTRIF;
 }

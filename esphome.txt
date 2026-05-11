@@ -1,0 +1,440 @@
+# ESPHome — Lavadora (Atalaya06) · interfaz completa para Home Assistant
+# Renombra este archivo a .yaml al compilar. Copia secrets.yaml.example -> secrets.yaml
+# y rellena claves (api_encryption_key, ota_password, captive_ap_password, wifi_*).
+
+substitutions:
+  nombre_corto: "Lavadora"
+
+esphome:
+  name: atalaya06
+  friendly_name: "${nombre_corto} Atalaya06"
+  min_version: "2023.12.0"
+  project:
+    name: "workper.lavadora-atalaya"
+    version: "1.1"
+
+esp8266:
+  board: esp01_1m
+
+logger:
+  baud_rate: 0
+
+api:
+  encryption:
+    key: !secret api_encryption_key
+
+ota:
+  - platform: esphome
+    password: !secret ota_password
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  use_address: 192.168.200.208
+  ap:
+    ssid: "Atalaya06 Fallback Hotspot"
+    password: !secret captive_ap_password
+
+captive_portal:
+
+json:
+
+uart:
+  id: uart_bus
+  tx_pin: GPIO1
+  rx_pin: GPIO3
+  baud_rate: 9600
+  debug:
+    direction: BOTH
+    dummy_receiver: true
+    after:
+      delimiter: "\n"
+    sequence:
+      - lambda: |-
+          UARTDebug::log_string(direction, bytes);
+          std::string data(bytes.begin(), bytes.end());
+          json::parse_json(data.c_str(), [](JsonObject root) -> bool {
+            auto get_int = [&](const char *a, const char *b, int def) -> int {
+              if (root.containsKey(a)) return root[a].as<int>();
+              if (b && root.containsKey(b)) return root[b].as<int>();
+              return def;
+            };
+            auto get_str = [&](const char *a, const char *b, const char *def) -> const char * {
+              if (root.containsKey(a)) return root[a].as<const char *>();
+              if (b && root.containsKey(b)) return root[b].as<const char *>();
+              return def;
+            };
+
+            if (root.containsKey("Fase"))
+              id(fase).publish_state(root["Fase"].as<const char *>());
+
+            int fa = get_int("FaseActual", "faseActual", id(faseactual).state);
+            id(faseactual).publish_state(fa);
+
+            int mn = get_int("Minuto", "minuto", id(minuto).state);
+            id(minuto).publish_state(mn);
+
+            if (root.containsKey("Segundo") || root.containsKey("segundo"))
+              id(segundo).publish_state(get_int("Segundo", "segundo", 0));
+
+            if (root.containsKey("Paso"))
+              id(paso_motor).publish_state(root["Paso"].as<int>());
+
+            if (root.containsKey("Encendida"))
+              id(encendida).publish_state(root["Encendida"].as<bool>());
+
+            if (root.containsKey("TamborVacio")) {
+              int tv = root["TamborVacio"].as<int>();
+              id(tambor_vacio).publish_state(tv);
+              id(tambor_lleno).publish_state(tv == 0);
+            }
+
+            if (root.containsKey("TiempoTotal"))
+              id(tiempo_total).publish_state(root["TiempoTotal"].as<int>());
+
+            if (root.containsKey("TiempoRestante"))
+              id(tiempo_restante).publish_state(root["TiempoRestante"].as<int>());
+
+            int tf = get_int("totalFases", nullptr, id(total_fases).state);
+            id(total_fases).publish_state(tf);
+
+            if (root.containsKey("ProgramaId") || root.containsKey("programa")) {
+              int pid = root.containsKey("ProgramaId") ? root["ProgramaId"].as<int>() : root["programa"].as<int>();
+              id(programa_id).publish_state(pid);
+              const char *pn = "Desconocido";
+              switch (pid) {
+                case 1: pn = "Largo"; break;
+                case 2: pn = "Corto"; break;
+                case 3: pn = "Vaciado"; break;
+                case 4: pn = "Corto 2"; break;
+                case 5: pn = "Centrifugar"; break;
+                default: break;
+              }
+              id(programa_nombre).publish_state(pn);
+            }
+
+            bool rp = false;
+            if (root.containsKey("recovery_pending"))
+              rp = root["recovery_pending"].as<bool>();
+            id(recovery_pending).publish_state(rp);
+
+            const char *rr = nullptr;
+            if (root.containsKey("recovery_reason"))
+              rr = root["recovery_reason"].as<const char *>();
+            else if (root.containsKey("reason"))
+              rr = root["reason"].as<const char *>();
+            if (rr && rr[0])
+              id(recovery_reason).publish_state(rr);
+
+            if (root.containsKey("last_error_code"))
+              id(last_error_code).publish_state(root["last_error_code"].as<int>());
+
+            if (root.containsKey("ErrRing0"))
+              id(err_ring_0).publish_state(root["ErrRing0"].as<int>());
+            if (root.containsKey("ErrRing1"))
+              id(err_ring_1).publish_state(root["ErrRing1"].as<int>());
+            if (root.containsKey("ErrRing2"))
+              id(err_ring_2).publish_state(root["ErrRing2"].as<int>());
+
+            if (root.containsKey("error"))
+              id(ultimo_error_txt).publish_state(root["error"].as<const char *>());
+
+            if (root.containsKey("tambor_saved"))
+              id(tambor_guardado).publish_state(root["tambor_saved"].as<int>());
+
+            if (tf > 0 && root.containsKey("FaseActual")) {
+              float pct = 100.0f * (float) fa / (float) tf;
+              if (pct > 100.0f) pct = 100.0f;
+              id(avance_ciclo_pct).publish_state(pct);
+            }
+
+            if (root.containsKey("Fase") && (root.containsKey("FaseActual") || root.containsKey("faseActual"))) {
+              char buf[160];
+              int trest = root.containsKey("TiempoRestante") ? root["TiempoRestante"].as<int>() : id(tiempo_restante).state;
+              snprintf(buf, sizeof(buf), "%s · Fase %d/%d · %d min fase · %d min rest · %s",
+                       root["Fase"].as<const char *>(), fa, tf, mn, trest,
+                       id(encendida).state ? "En marcha" : "Parada");
+              id(estado_resumen).publish_state(buf);
+            }
+
+            return true;
+          });
+
+# --- Controles principales (lavado) ---
+button:
+  - platform: template
+    name: "Iniciar programa largo"
+    icon: mdi:washing-machine
+    on_press:
+      - uart.write: "{\"command\":\"start\", \"programa\":\"largo\"}\n"
+  - platform: template
+    name: "Iniciar programa corto"
+    icon: mdi:washing-machine
+    on_press:
+      - uart.write: "{\"command\":\"start\", \"programa\":\"corto\"}\n"
+  - platform: template
+    name: "Iniciar programa corto 2"
+    icon: mdi:washing-machine
+    on_press:
+      - uart.write: "{\"command\":\"start\", \"programa\":\"corto2\"}\n"
+  - platform: template
+    name: "Solo vaciado"
+    icon: mdi:water-pump
+    on_press:
+      - uart.write: "{\"command\":\"start\", \"programa\":\"vaciado\"}\n"
+  - platform: template
+    name: "Solo centrifugado"
+    icon: mdi:rotate-right
+    on_press:
+      - uart.write: "{\"command\":\"start\", \"programa\":\"centrifugar\"}\n"
+  - platform: template
+    name: "Parar lavadora"
+    icon: mdi:stop-circle
+    on_press:
+      - uart.write: "{\"command\":\"stop\"}\n"
+
+# --- Recuperación tras corte / error ---
+  - platform: template
+    name: "Reanudar ciclo (confirmar)"
+    icon: mdi:play-circle
+    entity_category: config
+    on_press:
+      - uart.write: "{\"command\":\"resume\",\"confirm\":true}\n"
+  - platform: template
+    name: "Reanudar con centrifugado confirmado"
+    icon: mdi:rotate-orbit
+    entity_category: config
+    on_press:
+      - uart.write: "{\"command\":\"resume\",\"confirm\":true,\"ack_centrifuge\":true}\n"
+  - platform: template
+    name: "Descartar recuperación"
+    icon: mdi:backup-restore
+    entity_category: config
+    on_press:
+      - uart.write: "{\"command\":\"discard_recovery\"}\n"
+
+# --- Mantenimiento jabonera ---
+  - platform: template
+    name: "Test recorrido jabonera"
+    icon: mdi:tune-vertical
+    entity_category: config
+    on_press:
+      - uart.write: "{\"command\":\"jabon\"}\n"
+  - platform: template
+    name: "Jabonera posición prelavado"
+    icon: mdi:numeric-1-circle-outline
+    entity_category: config
+    on_press:
+      - uart.write: "{\"command\":\"jabon1\"}\n"
+  - platform: template
+    name: "Jabonera posición lavado"
+    icon: mdi:numeric-2-circle-outline
+    entity_category: config
+    on_press:
+      - uart.write: "{\"command\":\"jabon2\"}\n"
+  - platform: template
+    name: "Jabonera posición suavizante"
+    icon: mdi:numeric-3-circle-outline
+    entity_category: config
+    on_press:
+      - uart.write: "{\"command\":\"jabon3\"}\n"
+  - platform: template
+    name: "OLAF (debug)"
+    icon: mdi:emoticon-devil-outline
+    entity_category: config
+    on_press:
+      - uart.write: "OLAF Q ASHE"
+
+select:
+  - platform: template
+    name: "Iniciar programa (lista)"
+    id: programa_select
+    icon: mdi:format-list-bulleted
+    optimistic: true
+    options:
+      - "---"
+      - "Largo"
+      - "Corto"
+      - "Corto 2"
+      - "Vaciado"
+      - "Centrifugar"
+    initial_option: "---"
+    set_action:
+      - delay: 15ms
+      - if:
+          condition:
+            lambda: "return id(programa_select).state != std::string(\"---\");"
+          then:
+            - uart.write: !lambda |-
+                const std::string &v = id(programa_select).state;
+                std::string p = "largo";
+                if (v == "Corto") p = "corto";
+                else if (v == "Corto 2") p = "corto2";
+                else if (v == "Vaciado") p = "vaciado";
+                else if (v == "Centrifugar") p = "centrifugar";
+                else if (v == "Largo") p = "largo";
+                char buf[96];
+                snprintf(buf, sizeof(buf), "{\"command\":\"start\",\"programa\":\"%s\"}\n", p.c_str());
+                return std::string(buf);
+
+sensor:
+  - platform: template
+    name: "Fase actual (índice)"
+    id: faseactual
+    icon: mdi:stairs
+    unit_of_measurement: "fase"
+    state_class: measurement
+    accuracy_decimals: 0
+    initial_value: 0
+  - platform: template
+    name: "Total de fases"
+    id: total_fases
+    icon: mdi:stairs-box
+    unit_of_measurement: "fases"
+    entity_category: diagnostic
+    accuracy_decimals: 0
+    initial_value: 0
+  - platform: template
+    name: "Avance del ciclo"
+    id: avance_ciclo_pct
+    icon: mdi:progress-clock
+    unit_of_measurement: "%"
+    state_class: measurement
+    accuracy_decimals: 0
+    initial_value: 0
+  - platform: template
+    name: "Minuto en fase actual"
+    id: minuto
+    icon: mdi:timer-outline
+    unit_of_measurement: "min"
+    state_class: measurement
+    accuracy_decimals: 0
+    initial_value: 0
+  - platform: template
+    name: "Segundo en fase actual"
+    id: segundo
+    icon: mdi:timer-sand
+    unit_of_measurement: "s"
+    state_class: measurement
+    accuracy_decimals: 0
+    initial_value: 0
+  - platform: template
+    name: "Paso motor (subciclo)"
+    id: paso_motor
+    icon: mdi:engine
+    entity_category: diagnostic
+    state_class: measurement
+    accuracy_decimals: 0
+    initial_value: 0
+  - platform: template
+    name: "Presostato tambor vacío"
+    id: tambor_vacio
+    icon: mdi:barrel-outline
+    entity_category: diagnostic
+    state_class: measurement
+    accuracy_decimals: 0
+    initial_value: 0
+  - platform: template
+    name: "Tambor al guardar (último checkpoint)"
+    id: tambor_guardado
+    icon: mdi:database-outline
+    entity_category: diagnostic
+    state_class: measurement
+    accuracy_decimals: 0
+    initial_value: 0
+  - platform: template
+    name: "Duración total programa"
+    id: tiempo_total
+    icon: mdi:timelapse
+    unit_of_measurement: "min"
+    state_class: measurement
+    accuracy_decimals: 0
+    initial_value: 0
+  - platform: template
+    name: "Tiempo restante estimado"
+    id: tiempo_restante
+    icon: mdi:clock-end
+    unit_of_measurement: "min"
+    state_class: measurement
+    accuracy_decimals: 0
+    initial_value: 0
+  - platform: template
+    name: "Programa (ID interno)"
+    id: programa_id
+    icon: mdi:identifier
+    entity_category: diagnostic
+    state_class: measurement
+    accuracy_decimals: 0
+    initial_value: 0
+  - platform: template
+    name: "Último código error"
+    id: last_error_code
+    icon: mdi:alert-circle-outline
+    entity_category: diagnostic
+    state_class: measurement
+    accuracy_decimals: 0
+    initial_value: 0
+  - platform: template
+    name: "Historial error N-2"
+    id: err_ring_2
+    icon: mdi:history
+    entity_category: diagnostic
+    accuracy_decimals: 0
+    initial_value: 0
+  - platform: template
+    name: "Historial error N-1"
+    id: err_ring_1
+    icon: mdi:history
+    entity_category: diagnostic
+    accuracy_decimals: 0
+    initial_value: 0
+  - platform: template
+    name: "Historial error N"
+    id: err_ring_0
+    icon: mdi:history
+    entity_category: diagnostic
+    accuracy_decimals: 0
+    initial_value: 0
+
+binary_sensor:
+  - platform: template
+    name: "Ciclo en marcha"
+    id: encendida
+    icon: mdi:washing-machine
+    device_class: running
+  - platform: template
+    name: "Requiere confirmación (recuperación)"
+    id: recovery_pending
+    icon: mdi:alert-decagram
+    device_class: problem
+  - platform: template
+    name: "Tambor lleno (presostato)"
+    id: tambor_lleno
+    icon: mdi:water-check
+
+text_sensor:
+  - platform: template
+    name: "Fase (nombre)"
+    id: fase
+    icon: mdi:state-machine
+    initial_value: "idle"
+  - platform: template
+    name: "Programa activo (nombre)"
+    id: programa_nombre
+    icon: mdi:label-variant
+    initial_value: "---"
+  - platform: template
+    name: "Motivo recuperación / corte"
+    id: recovery_reason
+    icon: mdi:information-outline
+    initial_value: ""
+  - platform: template
+    name: "Último mensaje error (UART)"
+    id: ultimo_error_txt
+    icon: mdi:message-alert
+    initial_value: ""
+  - platform: template
+    name: "Resumen para panel"
+    id: estado_resumen
+    icon: mdi:text-long
+    initial_value: "Sin datos"
