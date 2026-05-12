@@ -15,7 +15,8 @@
  *   >STOP   >DISCARD   >RESUME,0|1   >JABON   >J1|>J2|>J3   >PING (respuesta OK PONG por Serial/espSerial)
  * Estado Arduino->ESP (prefijo S|): 19 campos separados por |
  *   S|Enc|Fa|Tf|Tv|Mn|Se|Pa|Tt|Tr|Pid|Fcode|Rp|Rcode|Ec|E0|E1|E2|Rx|Besp
- *   Besp: bytes leidos desde NeoSWSerial (ESP->A1), diagnostico cable/baud (sube aunque no haya linea completa)
+ *   Besp: bytes leidos desde NeoSWSerial; sube con cualquier trafico en RX (comandos, eco S|, ruido).
+ *   [diag] USB: tambien cuenta lineas completas S| vistas solo por espSerial (ver g_esp_s_pipe_rx_lines).
  *   Rx: lineas '>' recibidas por UART (cable ESP GPIO1/TX -> Arduino A1=D15, NeoSWSerial RX)
  *   Fcode: 0 idle 1 llenado_pre .. 9 desconocido (ver nombre_fase_actual_code)
  *   Rcode recuperacion UI: 0 ninguno 1 error 2 power_loss
@@ -102,8 +103,10 @@ static ErrorRingEntry g_err_ring[3];
 static uint8_t g_err_ring_pos = 0;
 /** Incrementa al recibir una linea no vacia que empieza por '>' (comandos desde ESP/PC). */
 static uint8_t g_uart_cmd_rx_count = 0;
-/** Bytes leidos de espSerial (cada read()); si Besp no sube al pulsar PING, no llega señal a A1. */
+/** Bytes leidos de espSerial (cada read()). */
 static uint32_t g_esp_soft_rx_bytes = 0;
+/** Lineas completas (\\n) por espSerial cuyo texto tras espacios empieza por "S|" (telemetria; no son comandos '>'). */
+static uint16_t g_esp_s_pipe_rx_lines = 0;
 
 void logMessage(const char* msg);
 bool startLavadora(const char* programa);
@@ -608,8 +611,10 @@ void serialSendStatus()
   Serial.println(buf);
   espSerial.println(buf);
 #if DEBUG_UART_USB_LINES
-  Serial.print(F("[diag] espSerial bytes="));
+  Serial.print(F("[diag] esp bytes="));
   Serial.print((unsigned long)g_esp_soft_rx_bytes);
+  Serial.print(F(" S|lines="));
+  Serial.print((unsigned)g_esp_s_pipe_rx_lines);
   Serial.print(F(" cmd>'="));
   Serial.println((unsigned)g_uart_cmd_rx_count);
 #endif
@@ -839,8 +844,20 @@ static void processCommandLine(const char* line)
   logMessage("!E|unknown");
 }
 
+static const char* skip_uart_ws(const char* s)
+{
+  while (*s == ' ' || *s == '\t')
+    s++;
+  return s;
+}
+
 static void processCommandLineFromEsp(const char* line)
 {
+  const char* q = skip_uart_ws(line);
+  if (q[0] == 'S' && q[1] == '|') {
+    if (g_esp_s_pipe_rx_lines != 0xFFFFu)
+      g_esp_s_pipe_rx_lines++;
+  }
 #if DEBUG_UART_USB_LINES
   Serial.print(F("[ESP RX] "));
   Serial.println(line);
