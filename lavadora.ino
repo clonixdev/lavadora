@@ -12,7 +12,8 @@
  * UART wire (sin JSON), lineas terminadas en \n:
  * Comandos ESP->Arduino (prefijo '>'):
  *   >START,L|C|2|V|X  largo|corto|corto2|vaciado|centrifugar
- *   >STOP   >DISCARD   >RESUME,0|1   >JABON   >J1|>J2|>J3   >PING (respuesta OK PONG por Serial/espSerial)
+ *   >STOP   >DISCARD   >RESUME,0|1   >JABON   >J1|>J2|>J3   >PING (respuesta OK PONG; pitido corto en alarma)
+ *   Linea UART por ESP con subcadena "OLAF" (p. ej. basura RX): pitido grave adicional (diagnostico).
  *   Parser: primer '>' en la linea (basura delante); cola solo espacios/control; >PING sin distinguir mayus/minus.
  * Estado Arduino->ESP (prefijo S|): 19 campos separados por |
  *   S|Enc|Fa|Tf|Tv|Mn|Se|Pa|Tt|Tr|Pid|Fcode|Rp|Rcode|Ec|E0|E1|E2|Rx|Besp
@@ -478,6 +479,44 @@ void errorbuzzerPWM()
   wdt_enable(WDTO_8S);
 }
 
+/** Subcadena "OLAF" sin distinguir mayusculas (p. ej. trama corrupta tipo "OLAF Q ASHE"). */
+static bool uart_line_has_olaf_ci(const char* s)
+{
+  for (; *s; ++s) {
+    const char* p = s;
+    static const char olaf[] = "OLAF";
+    unsigned i;
+    for (i = 0; i < sizeof(olaf) - 1u && *p; ++i, ++p) {
+      char c = *p;
+      if (c >= 'a' && c <= 'z')
+        c = (char)(c - ('a' - 'A'));
+      if (c != olaf[i])
+        break;
+    }
+    if (i == sizeof(olaf) - 1u)
+      return true;
+  }
+  return false;
+}
+
+static void uart_buzzer_ping_ack(void)
+{
+  buzzerPWM(alarma, 1568, 90);
+  nobuzzerPWM(alarma);
+}
+
+static void uart_buzzer_olaf_siniestro(void)
+{
+  wdt_disable();
+  buzzerPWM(alarma, 196, 550);
+  delay(100);
+  buzzerPWM(alarma, 147, 700);
+  delay(120);
+  buzzerPWM(alarma, 98, 900);
+  nobuzzerPWM(alarma);
+  wdt_enable(WDTO_8S);
+}
+
 void loopTimer()
 {
   if (millis() - hora >= intervalo)
@@ -875,6 +914,7 @@ static void processCommandLine(const char* line)
   }
   if (uart_cmd_is_ping_ci(p) && uart_cmd_tail_ws_only(p + 5)) {
     logMessage("OK PONG");
+    uart_buzzer_ping_ack();
     return;
   }
   logMessage("!E|unknown");
@@ -899,6 +939,8 @@ static void processCommandLineFromEsp(const char* line)
   Serial.println(line);
 #endif
   processCommandLine(line);
+  if (uart_line_has_olaf_ci(line))
+    uart_buzzer_olaf_siniestro();
 }
 
 static void processCommandLineFromPc(const char* line)
