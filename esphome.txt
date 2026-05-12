@@ -18,6 +18,8 @@ esp8266:
 
 logger:
   baud_rate: 0
+  logs:
+    json: NONE
 
 api:
   encryption:
@@ -37,6 +39,7 @@ wifi:
 
 captive_portal:
 
+# Declara el componente json para enlazar ArduinoJson (includes del compilador), sin usar un .h en /config/.
 json:
 
 uart:
@@ -48,117 +51,143 @@ uart:
     direction: BOTH
     dummy_receiver: true
     after:
-      delimiter: "\n"
+      delimiter: "\r\n"
     sequence:
       - lambda: |-
-          UARTDebug::log_string(direction, bytes);
-          std::string data(bytes.begin(), bytes.end());
-          json::parse_json(data.c_str(), [](JsonObject root) -> bool {
-            auto get_int = [&](const char *a, const char *b, int def) -> int {
-              if (root.containsKey(a)) return root[a].as<int>();
-              if (b && root.containsKey(b)) return root[b].as<int>();
-              return def;
-            };
-            auto get_str = [&](const char *a, const char *b, const char *def) -> const char * {
-              if (root.containsKey(a)) return root[a].as<const char *>();
-              if (b && root.containsKey(b)) return root[b].as<const char *>();
-              return def;
-            };
-
-            if (root.containsKey("Fase"))
-              id(fase).publish_state(root["Fase"].as<const char *>());
-
-            int fa = get_int("FaseActual", "faseActual", id(faseactual).state);
-            id(faseactual).publish_state(fa);
-
-            int mn = get_int("Minuto", "minuto", id(minuto).state);
-            id(minuto).publish_state(mn);
-
-            if (root.containsKey("Segundo") || root.containsKey("segundo"))
-              id(segundo).publish_state(get_int("Segundo", "segundo", 0));
-
-            if (root.containsKey("Paso"))
-              id(paso_motor).publish_state(root["Paso"].as<int>());
-
-            if (root.containsKey("Encendida"))
-              id(encendida).publish_state(root["Encendida"].as<bool>());
-
-            if (root.containsKey("TamborVacio")) {
-              int tv = root["TamborVacio"].as<int>();
-              id(tambor_vacio).publish_state(tv);
-              id(tambor_lleno).publish_state(tv == 0);
-            }
-
-            if (root.containsKey("TiempoTotal"))
-              id(tiempo_total).publish_state(root["TiempoTotal"].as<int>());
-
-            if (root.containsKey("TiempoRestante"))
-              id(tiempo_restante).publish_state(root["TiempoRestante"].as<int>());
-
-            int tf = get_int("totalFases", nullptr, id(total_fases).state);
-            id(total_fases).publish_state(tf);
-
-            if (root.containsKey("ProgramaId") || root.containsKey("programa")) {
-              int pid = root.containsKey("ProgramaId") ? root["ProgramaId"].as<int>() : root["programa"].as<int>();
-              id(programa_id).publish_state(pid);
-              const char *pn = "Desconocido";
-              switch (pid) {
-                case 1: pn = "Largo"; break;
-                case 2: pn = "Corto"; break;
-                case 3: pn = "Vaciado"; break;
-                case 4: pn = "Corto 2"; break;
-                case 5: pn = "Centrifugar"; break;
-                default: break;
+          if (bytes.empty())
+            return;
+          {
+            bool only_ws = true;
+            for (uint8_t b : bytes) {
+              if (b != '\r' && b != '\n' && b != ' ' && b != '\t') {
+                only_ws = false;
+                break;
               }
-              id(programa_nombre).publish_state(pn);
             }
+            if (only_ws)
+              return;
+          }
+          if (direction != uart::UART_DIRECTION_RX)
+            return;
+          std::string data(bytes.begin(), bytes.end());
+          while (!data.empty() && (unsigned char) data.back() <= 32)
+            data.pop_back();
+          while (!data.empty() && (unsigned char) data.front() <= 32)
+            data.erase(0, 1);
+          if (data.empty() || data.front() != '{')
+            return;
+          JsonDocument doc;
+          DeserializationError err = deserializeJson(doc, data);
+          if (err)
+            return;
+          JsonObject root = doc.as< JsonObject >();
+          auto get_int = [&](const char *a, const char *b, int def) -> int {
+            if (!root[a].isNull())
+              return static_cast<int>(root[a].as< double >());
+            if (b && !root[b].isNull())
+              return static_cast<int>(root[b].as< double >());
+            return def;
+          };
+          bool looks_like_status = !root["Encendida"].isNull() || !root["FaseActual"].isNull() || !root["faseActual"].isNull() ||
+              !root["ProgramaId"].isNull() || !root["TamborVacio"].isNull() || !root["TiempoTotal"].isNull() ||
+              !root["recovery_pending"].isNull() || !root["error"].isNull();
+          if (!looks_like_status)
+            return;
+          UARTDebug::log_string(direction, bytes);
 
-            bool rp = false;
-            if (root.containsKey("recovery_pending"))
-              rp = root["recovery_pending"].as<bool>();
-            id(recovery_pending).publish_state(rp);
+          if (!root["Fase"].isNull())
+            id(fase).publish_state(root["Fase"].as< const char * >());
 
-            const char *rr = nullptr;
-            if (root.containsKey("recovery_reason"))
-              rr = root["recovery_reason"].as<const char *>();
-            else if (root.containsKey("reason"))
-              rr = root["reason"].as<const char *>();
-            if (rr && rr[0])
-              id(recovery_reason).publish_state(rr);
+          int fa = get_int("FaseActual", "faseActual", 0);
+          id(faseactual).publish_state(fa);
 
-            if (root.containsKey("last_error_code"))
-              id(last_error_code).publish_state(root["last_error_code"].as<int>());
+          int mn = get_int("Minuto", "minuto", 0);
+          id(minuto).publish_state(mn);
 
-            if (root.containsKey("ErrRing0"))
-              id(err_ring_0).publish_state(root["ErrRing0"].as<int>());
-            if (root.containsKey("ErrRing1"))
-              id(err_ring_1).publish_state(root["ErrRing1"].as<int>());
-            if (root.containsKey("ErrRing2"))
-              id(err_ring_2).publish_state(root["ErrRing2"].as<int>());
+          if (!root["Segundo"].isNull() || !root["segundo"].isNull())
+            id(segundo).publish_state(get_int("Segundo", "segundo", 0));
 
-            if (root.containsKey("error"))
-              id(ultimo_error_txt).publish_state(root["error"].as<const char *>());
+          if (!root["Paso"].isNull())
+            id(paso_motor).publish_state(static_cast<int>(root["Paso"].as< double >()));
 
-            if (root.containsKey("tambor_saved"))
-              id(tambor_guardado).publish_state(root["tambor_saved"].as<int>());
+          if (!root["Encendida"].isNull())
+            id(encendida).publish_state(root["Encendida"].as< bool >());
 
-            if (tf > 0 && root.containsKey("FaseActual")) {
-              float pct = 100.0f * (float) fa / (float) tf;
-              if (pct > 100.0f) pct = 100.0f;
-              id(avance_ciclo_pct).publish_state(pct);
+          if (!root["TamborVacio"].isNull()) {
+            int tv = static_cast<int>(root["TamborVacio"].as< double >());
+            id(tambor_vacio).publish_state(tv);
+            id(tambor_lleno).publish_state(tv == 0);
+          }
+
+          if (!root["TiempoTotal"].isNull())
+            id(tiempo_total).publish_state(static_cast<int>(root["TiempoTotal"].as< double >()));
+
+          if (!root["TiempoRestante"].isNull())
+            id(tiempo_restante).publish_state(static_cast<int>(root["TiempoRestante"].as< double >()));
+
+          int tf = get_int("totalFases", nullptr, 0);
+          id(total_fases).publish_state(tf);
+
+          if (!root["ProgramaId"].isNull() || !root["programa"].isNull()) {
+            int pid = !root["ProgramaId"].isNull()
+                          ? static_cast<int>(root["ProgramaId"].as< double >())
+                          : static_cast<int>(root["programa"].as< double >());
+            id(programa_id).publish_state(pid);
+            const char *pn = "Desconocido";
+            switch (pid) {
+              case 1: pn = "Largo"; break;
+              case 2: pn = "Corto"; break;
+              case 3: pn = "Vaciado"; break;
+              case 4: pn = "Corto 2"; break;
+              case 5: pn = "Centrifugar"; break;
+              default: break;
             }
+            id(programa_nombre).publish_state(pn);
+          }
 
-            if (root.containsKey("Fase") && (root.containsKey("FaseActual") || root.containsKey("faseActual"))) {
-              char buf[160];
-              int trest = root.containsKey("TiempoRestante") ? root["TiempoRestante"].as<int>() : id(tiempo_restante).state;
-              snprintf(buf, sizeof(buf), "%s · Fase %d/%d · %d min fase · %d min rest · %s",
-                       root["Fase"].as<const char *>(), fa, tf, mn, trest,
-                       id(encendida).state ? "En marcha" : "Parada");
-              id(estado_resumen).publish_state(buf);
-            }
+          bool rp = false;
+          if (!root["recovery_pending"].isNull())
+            rp = root["recovery_pending"].as< bool >();
+          id(recovery_pending).publish_state(rp);
 
-            return true;
-          });
+          const char *rr = nullptr;
+          if (!root["recovery_reason"].isNull())
+            rr = root["recovery_reason"].as< const char * >();
+          else if (!root["reason"].isNull())
+            rr = root["reason"].as< const char * >();
+          if (rr && rr[0])
+            id(recovery_reason).publish_state(rr);
+
+          if (!root["last_error_code"].isNull())
+            id(last_error_code).publish_state(static_cast<int>(root["last_error_code"].as< double >()));
+
+          if (!root["ErrRing0"].isNull())
+            id(err_ring_0).publish_state(static_cast<int>(root["ErrRing0"].as< double >()));
+          if (!root["ErrRing1"].isNull())
+            id(err_ring_1).publish_state(static_cast<int>(root["ErrRing1"].as< double >()));
+          if (!root["ErrRing2"].isNull())
+            id(err_ring_2).publish_state(static_cast<int>(root["ErrRing2"].as< double >()));
+
+          if (!root["error"].isNull())
+            id(ultimo_error_txt).publish_state(root["error"].as< const char * >());
+
+          if (!root["tambor_saved"].isNull())
+            id(tambor_guardado).publish_state(static_cast<int>(root["tambor_saved"].as< double >()));
+
+          if (tf > 0 && !root["FaseActual"].isNull()) {
+            float pct = 100.0f * (float) fa / (float) tf;
+            if (pct > 100.0f) pct = 100.0f;
+            id(avance_ciclo_pct).publish_state(pct);
+          }
+
+          if (!root["Fase"].isNull() && (!root["FaseActual"].isNull() || !root["faseActual"].isNull())) {
+            char buf[160];
+            int trest = !root["TiempoRestante"].isNull() ? static_cast<int>(root["TiempoRestante"].as< double >()) : 0;
+            snprintf(buf, sizeof(buf), "%s · Fase %d/%d · %d min fase · %d min rest · %s",
+                     root["Fase"].as< const char * >(), fa, tf, mn, trest,
+                     id(encendida).state ? "En marcha" : "Parada");
+            id(estado_resumen).publish_state(buf);
+          }
 
 # --- Controles principales (lavado) ---
 button:
@@ -273,9 +302,8 @@ select:
                 else if (v == "Vaciado") p = "vaciado";
                 else if (v == "Centrifugar") p = "centrifugar";
                 else if (v == "Largo") p = "largo";
-                char buf[96];
-                snprintf(buf, sizeof(buf), "{\"command\":\"start\",\"programa\":\"%s\"}\n", p.c_str());
-                return std::string(buf);
+                std::string out = std::string("{\"command\":\"start\",\"programa\":\"") + p + "\"}\n";
+                return std::vector<uint8_t>(out.begin(), out.end());
 
 sensor:
   - platform: template
@@ -285,7 +313,6 @@ sensor:
     unit_of_measurement: "fase"
     state_class: measurement
     accuracy_decimals: 0
-    initial_value: 0
   - platform: template
     name: "Total de fases"
     id: total_fases
@@ -293,7 +320,6 @@ sensor:
     unit_of_measurement: "fases"
     entity_category: diagnostic
     accuracy_decimals: 0
-    initial_value: 0
   - platform: template
     name: "Avance del ciclo"
     id: avance_ciclo_pct
@@ -301,7 +327,6 @@ sensor:
     unit_of_measurement: "%"
     state_class: measurement
     accuracy_decimals: 0
-    initial_value: 0
   - platform: template
     name: "Minuto en fase actual"
     id: minuto
@@ -309,7 +334,6 @@ sensor:
     unit_of_measurement: "min"
     state_class: measurement
     accuracy_decimals: 0
-    initial_value: 0
   - platform: template
     name: "Segundo en fase actual"
     id: segundo
@@ -317,7 +341,6 @@ sensor:
     unit_of_measurement: "s"
     state_class: measurement
     accuracy_decimals: 0
-    initial_value: 0
   - platform: template
     name: "Paso motor (subciclo)"
     id: paso_motor
@@ -325,7 +348,6 @@ sensor:
     entity_category: diagnostic
     state_class: measurement
     accuracy_decimals: 0
-    initial_value: 0
   - platform: template
     name: "Presostato tambor vacío"
     id: tambor_vacio
@@ -333,7 +355,6 @@ sensor:
     entity_category: diagnostic
     state_class: measurement
     accuracy_decimals: 0
-    initial_value: 0
   - platform: template
     name: "Tambor al guardar (último checkpoint)"
     id: tambor_guardado
@@ -341,7 +362,6 @@ sensor:
     entity_category: diagnostic
     state_class: measurement
     accuracy_decimals: 0
-    initial_value: 0
   - platform: template
     name: "Duración total programa"
     id: tiempo_total
@@ -349,7 +369,6 @@ sensor:
     unit_of_measurement: "min"
     state_class: measurement
     accuracy_decimals: 0
-    initial_value: 0
   - platform: template
     name: "Tiempo restante estimado"
     id: tiempo_restante
@@ -357,7 +376,6 @@ sensor:
     unit_of_measurement: "min"
     state_class: measurement
     accuracy_decimals: 0
-    initial_value: 0
   - platform: template
     name: "Programa (ID interno)"
     id: programa_id
@@ -365,7 +383,6 @@ sensor:
     entity_category: diagnostic
     state_class: measurement
     accuracy_decimals: 0
-    initial_value: 0
   - platform: template
     name: "Último código error"
     id: last_error_code
@@ -373,28 +390,24 @@ sensor:
     entity_category: diagnostic
     state_class: measurement
     accuracy_decimals: 0
-    initial_value: 0
   - platform: template
     name: "Historial error N-2"
     id: err_ring_2
     icon: mdi:history
     entity_category: diagnostic
     accuracy_decimals: 0
-    initial_value: 0
   - platform: template
     name: "Historial error N-1"
     id: err_ring_1
     icon: mdi:history
     entity_category: diagnostic
     accuracy_decimals: 0
-    initial_value: 0
   - platform: template
     name: "Historial error N"
     id: err_ring_0
     icon: mdi:history
     entity_category: diagnostic
     accuracy_decimals: 0
-    initial_value: 0
 
 binary_sensor:
   - platform: template
@@ -417,24 +430,19 @@ text_sensor:
     name: "Fase (nombre)"
     id: fase
     icon: mdi:state-machine
-    initial_value: "idle"
   - platform: template
     name: "Programa activo (nombre)"
     id: programa_nombre
     icon: mdi:label-variant
-    initial_value: "---"
   - platform: template
     name: "Motivo recuperación / corte"
     id: recovery_reason
     icon: mdi:information-outline
-    initial_value: ""
   - platform: template
     name: "Último mensaje error (UART)"
     id: ultimo_error_txt
     icon: mdi:message-alert
-    initial_value: ""
   - platform: template
     name: "Resumen para panel"
     id: estado_resumen
     icon: mdi:text-long
-    initial_value: "Sin datos"

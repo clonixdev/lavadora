@@ -38,6 +38,7 @@ int jabPosPreLavado = 750;
 int jabPosLavado = 900;
 int jabPosSuavizante = 1100;
 int jabPosLavandina = 1350;
+static int last_jab_servo_angle = -1;
 
 int tamborVacio = 0;
 int tiempoTotal = 0;
@@ -279,6 +280,7 @@ void setup()
   digitalWrite(bloqueo, HIGH); // BLOQUEO DE PUERTA
   jabservo.attach(jabonera);
   jabservo.write(jabPosPreLavado);
+  last_jab_servo_angle = jabPosPreLavado;
   powerOnbuzzerPWM();
 
   wdt_disable();
@@ -450,38 +452,42 @@ void loopTimer()
 void calibrarJabonera(int value)
 {
   jabservo.write(value);
+  last_jab_servo_angle = value;
 }
 
 void calibrarJaboneraTest()
 {
   wdt_disable();
   jabservo.write(jabPosPreLavado);
+  last_jab_servo_angle = jabPosPreLavado;
   delay(3000);
   jabservo.write(jabPosLavado);
+  last_jab_servo_angle = jabPosLavado;
   delay(3000);
   jabservo.write(jabPosSuavizante);
+  last_jab_servo_angle = jabPosSuavizante;
   delay(3000);
   jabservo.write(jabPosLavandina);
+  last_jab_servo_angle = jabPosLavandina;
   wdt_enable(WDTO_8S);
 }
 
 void setJabonera()
 {
   FaseIndex fase = fases[faseActual];
-
+  int target;
   if (fase.funcion == LLENADO_PRE_LAVADO)
-  {
-    jabservo.write(jabPosPreLavado);
-  }
+    target = jabPosPreLavado;
   else if (fase.funcion == LLENADO_LAVADO)
-  {
-    jabservo.write(jabPosLavado);
-  }
+    target = jabPosLavado;
   else if (fase.funcion == LLENADO_SUAVIZANTE)
-  {
-    jabservo.write(jabPosSuavizante);
-  }else {
-   jabservo.write(jabPosPreLavado); 
+    target = jabPosSuavizante;
+  else
+    target = jabPosPreLavado;
+
+  if (target != last_jab_servo_angle) {
+    jabservo.write(target);
+    last_jab_servo_angle = target;
   }
 }
 
