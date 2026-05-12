@@ -78,6 +78,7 @@ void setProgramaVaciado(void);
 void setProgramaCorto2(void);
 void setProgramaCentrifugar(void);
 void calcTiempoTotal(void);
+static void processJsonCommandLine(const char* line);
 
 static void push_error_ring(uint8_t code, uint8_t fase) {
   g_err_ring[g_err_ring_pos].t_ms = millis();
@@ -653,53 +654,99 @@ void loopLavadora()
   }
 }
 
+static const size_t UART_CMD_CAP = 220;
+static char s_uart_line_esp[UART_CMD_CAP];
+static char s_uart_line_pc[UART_CMD_CAP];
+static size_t s_uart_len_esp;
+static size_t s_uart_len_pc;
+
+static void uart_drain_stream(Stream& s, char* acc, size_t& acc_len, size_t acc_cap,
+                               void (*on_line)(const char*), size_t max_read) {
+  size_t nread = 0;
+  while (s.available() && nread < max_read) {
+    int r = s.read();
+    if (r < 0)
+      break;
+    nread++;
+    unsigned char uc = (unsigned char)r;
+    if (uc == '\r')
+      continue;
+    if (uc == '\n') {
+      if (acc_len < acc_cap)
+        acc[acc_len] = '\0';
+      else
+        acc[acc_cap - 1] = '\0';
+      if (acc_len > 0)
+        on_line(acc);
+      acc_len = 0;
+      continue;
+    }
+    if (acc_len >= acc_cap - 1) {
+      acc_len = 0;
+      break;
+    }
+    acc[acc_len++] = (char)uc;
+  }
+}
+
 void processCommand()
 {
-  Stream* input = nullptr;
-  if (espSerial.available())
-    input = &espSerial;
-  else if (Serial.available())
-    input = &Serial;
-  if (!input)
+  static bool s_uart_serial_first;
+  s_uart_serial_first = !s_uart_serial_first;
+  const size_t chunk = 48;
+
+  if (s_uart_serial_first) {
+    uart_drain_stream(Serial, s_uart_line_pc, s_uart_len_pc, UART_CMD_CAP, processJsonCommandLine, chunk);
+    uart_drain_stream(espSerial, s_uart_line_esp, s_uart_len_esp, UART_CMD_CAP, processJsonCommandLine, chunk);
+  } else {
+    uart_drain_stream(espSerial, s_uart_line_esp, s_uart_len_esp, UART_CMD_CAP, processJsonCommandLine, chunk);
+    uart_drain_stream(Serial, s_uart_line_pc, s_uart_len_pc, UART_CMD_CAP, processJsonCommandLine, chunk);
+  }
+}
+
+static void processJsonCommandLine(const char* line)
+{
+  const char* p = line;
+  while (*p == ' ' || *p == '\t')
+    p++;
+  if (*p == '\0')
+    return;
+  if (*p != '{')
     return;
 
   JsonDocument doc;
-  DeserializationError error = deserializeJson(doc, *input);
-  
+  DeserializationError error = deserializeJson(doc, p);
   if (error) {
-    logMessage("{\"error\":\"Invalid JSON code 1\"}");
-     Serial.println(error.c_str());
-	  return;
+    static unsigned long s_last_json_err_ms;
+    unsigned long now = millis();
+    if (now - s_last_json_err_ms >= 2000UL) {
+      s_last_json_err_ms = now;
+      logMessage("{\"error\":\"Invalid JSON line\"}");
+    }
+    return;
   }
 
-  
-	if (!doc.containsKey("command")) {
-	  logMessage("{\"error\":\"Missing 'command' key\"}");
-	  return;
-	}
+  if (!doc.containsKey("command")) {
+    logMessage("{\"error\":\"Missing 'command' key\"}");
+    return;
+  }
   const char* command = doc["command"];
-  
 
-  // Comparar el comando recibido
   if (strcmp(command, "start") == 0)
   {
-
-
-	if (doc.containsKey("programa")) {
-       const char* prog = doc["programa"];
-       if (startLavadora(prog))
-         logMessage("{\"status\":\"ok\",\"command\":\"start\"}");
-    }else {
-          logMessage("{\"error\":\"Invalid Command Programa no definido\"}");
-    return;
+    if (doc.containsKey("programa")) {
+      const char* prog = doc["programa"];
+      if (startLavadora(prog))
+        logMessage("{\"status\":\"ok\",\"command\":\"start\"}");
+    } else {
+      logMessage("{\"error\":\"Invalid Command Programa no definido\"}");
+      return;
     }
-
-    
   }
   else if (strcmp(command, "stop") == 0)
   {
     stopLavadora();
-	 logMessage("{\"status\":\"ok\",\"command\":\"stop\"}");
+    logMessage("{\"status\":\"ok\",\"command\":\"stop\"}");
   }
   else if (strcmp(command, "discard_recovery") == 0)
   {
@@ -731,17 +778,15 @@ void processCommand()
   }
   else if (strcmp(command, "jabon") == 0)
   {
-    
     calibrarJaboneraTest();
     return;
-    
   }
-    else if (strcmp(command, "jabon1") == 0)
+  else if (strcmp(command, "jabon1") == 0)
   {
     calibrarJabonera(jabPosPreLavado);
     return;
   }
-    else if (strcmp(command, "jabon2") == 0)
+  else if (strcmp(command, "jabon2") == 0)
   {
     calibrarJabonera(jabPosLavado);
     return;
