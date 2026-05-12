@@ -13,6 +13,7 @@
  * Comandos ESP->Arduino (prefijo '>'):
  *   >START,L|C|2|V|X  largo|corto|corto2|vaciado|centrifugar
  *   >STOP   >DISCARD   >RESUME,0|1   >JABON   >J1|>J2|>J3   >PING (respuesta OK PONG por Serial/espSerial)
+ *   Parser: primer '>' en la linea (basura delante); cola solo espacios/control; >PING sin distinguir mayus/minus.
  * Estado Arduino->ESP (prefijo S|): 19 campos separados por |
  *   S|Enc|Fa|Tf|Tv|Mn|Se|Pa|Tt|Tr|Pid|Fcode|Rp|Rcode|Ec|E0|E1|E2|Rx|Besp
  *   Besp: bytes leidos desde NeoSWSerial; sube con cualquier trafico en RX (comandos, eco S|, ruido).
@@ -34,6 +35,7 @@
 					
 // Cable: salida del pad TX del modulo ESP (GPIO1) -> A1 (RX). Pad RX del ESP (GPIO3) <- A2 (TX). GND comun.
 // No conectar el pad RX del ESP al A1: ahi solo llegarian datos si el Arduino transmitiera por error a GPIO3.
+// Enlace ESP<->Arduino a 4800 baud (mas estable con NeoSWSerial); Serial USB sigue a 9600 para el monitor IDE.
 #ifndef DEBUG_UART_USB_LINES
 #define DEBUG_UART_USB_LINES 1
 #endif
@@ -301,8 +303,11 @@ void setup()
 {
 
   Serial.begin(9600);
-  espSerial.begin(9600);
-   
+  espSerial.begin(4800);
+  delay(50);
+  while (espSerial.available())
+    (void)espSerial.read();
+
   // CONFIGURAMOS LOS PINES DE SALIDA NECESARIOS PARA NUESTRA LAVADORA
   pinMode(presostato, INPUT);
   pinMode(val1, OUTPUT);
@@ -745,15 +750,41 @@ static void uart_drain_stream(Stream& s, char* acc, size_t& acc_len, size_t acc_
 
 void processCommand()
 {
-  /* Mismo espSerial que en rama wifi (JSON). Siempre drenar primero el enlace ESP: el monitor
-   * serie en USB puede llenar el buffer de Serial y, con la alternancia previa + chunk pequeño,
-   * retrasar el procesamiento de comandos cortos en espSerial. */
-  const size_t chunk = 128;
-  for (uint8_t pass = 0; pass < 2; ++pass) {
+  /* Mismo espSerial que en rama wifi (JSON). Drenar con chunk grande y varias pasadas para no
+   * perder bytes por buffer interno pequeño de NeoSWSerial (UART corrupto si se llena). */
+  const size_t chunk = 255;
+  for (uint8_t pass = 0; pass < 6; ++pass) {
     uart_drain_stream(espSerial, s_uart_line_esp, s_uart_len_esp, UART_CMD_CAP, processCommandLineFromEsp, chunk,
                       &g_esp_soft_rx_bytes);
     uart_drain_stream(Serial, s_uart_line_pc, s_uart_len_pc, UART_CMD_CAP, processCommandLineFromPc, chunk, nullptr);
   }
+}
+
+/** Tras el cuerpo fijo del comando, solo ASCII <= 32 (espacio, tab, CR, LF). */
+static bool uart_cmd_tail_ws_only(const char* t)
+{
+  for (; *t; ++t) {
+    unsigned char c = (unsigned char)*t;
+    if (c > 32u)
+      return false;
+  }
+  return true;
+}
+
+/** ">PING" con PING en mayusculas o minusculas. */
+static bool uart_cmd_is_ping_ci(const char* p)
+{
+  if (p[0] != '>')
+    return false;
+  static const char ref[] = "PING";
+  for (uint8_t i = 0; i < 4; i++) {
+    char c = p[1 + i];
+    if (c >= 'a' && c <= 'z')
+      c = (char)(c - ('a' - 'A'));
+    if (c != ref[i])
+      return false;
+  }
+  return true;
 }
 
 static void processCommandLine(const char* line)
@@ -769,21 +800,26 @@ static void processCommandLine(const char* line)
     p++;
   if (*p == '\0')
     return;
+  {
+    char* gt = strchr(p, '>');
+    if (gt != nullptr)
+      p = gt;
+  }
   if (p[0] != '>')
     return;
   g_uart_cmd_rx_count++;
 
-  if (!strcmp(p, ">STOP")) {
+  if (!strncmp(p, ">STOP", 5) && uart_cmd_tail_ws_only(p + 5)) {
     stopLavadora();
     logMessage("OK STOP");
     return;
   }
-  if (!strcmp(p, ">DISCARD")) {
+  if (!strncmp(p, ">DISCARD", 8) && uart_cmd_tail_ws_only(p + 8)) {
     discard_recovery_state();
     logMessage("OK DISCARD");
     return;
   }
-  if (!strncmp(p, ">RESUME,", 8) && (p[8] == '0' || p[8] == '1') && p[9] == '\0') {
+  if (!strncmp(p, ">RESUME,", 8) && (p[8] == '0' || p[8] == '1') && uart_cmd_tail_ws_only(p + 9)) {
     bool ackCent = (p[8] == '1');
     WashCheckpoint cp;
     if (!checkpoint_read(&cp)) {
@@ -801,7 +837,7 @@ static void processCommandLine(const char* line)
     logMessage("OK RESUME");
     return;
   }
-  if (!strncmp(p, ">START,", 7) && p[7] != '\0' && p[8] == '\0') {
+  if (!strncmp(p, ">START,", 7) && p[7] != '\0' && uart_cmd_tail_ws_only(p + 8)) {
     const char* prog = nullptr;
     switch (p[7]) {
       case 'L': prog = "largo"; break;
@@ -821,23 +857,23 @@ static void processCommandLine(const char* line)
       logMessage("!E|start_failed");
     return;
   }
-  if (!strcmp(p, ">JABON")) {
+  if (!strncmp(p, ">JABON", 6) && uart_cmd_tail_ws_only(p + 6)) {
     calibrarJaboneraTest();
     return;
   }
-  if (!strcmp(p, ">J1")) {
+  if (!strncmp(p, ">J1", 3) && uart_cmd_tail_ws_only(p + 3)) {
     calibrarJabonera(jabPosPreLavado);
     return;
   }
-  if (!strcmp(p, ">J2")) {
+  if (!strncmp(p, ">J2", 3) && uart_cmd_tail_ws_only(p + 3)) {
     calibrarJabonera(jabPosLavado);
     return;
   }
-  if (!strcmp(p, ">J3")) {
+  if (!strncmp(p, ">J3", 3) && uart_cmd_tail_ws_only(p + 3)) {
     calibrarJabonera(jabPosSuavizante);
     return;
   }
-  if (!strcmp(p, ">PING")) {
+  if (uart_cmd_is_ping_ci(p) && uart_cmd_tail_ws_only(p + 5)) {
     logMessage("OK PONG");
     return;
   }
