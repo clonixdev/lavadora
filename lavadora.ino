@@ -1,5 +1,5 @@
 #ifndef USE_JABONERA_SERVO
-#define USE_JABONERA_SERVO 0
+#define USE_JABONERA_SERVO 1
 #endif
 #if USE_JABONERA_SERVO
 #include <Servo.h>
@@ -39,7 +39,7 @@
 // Enlace ESP<->Arduino 9600 baud (debe coincidir con uart: baud_rate en ESPHome; ambos firmwares a la vez).
 // Serial USB del IDE sigue a 9600.
 #ifndef DEBUG_UART_USB_LINES
-#define DEBUG_UART_USB_LINES 1
+#define DEBUG_UART_USB_LINES 0
 #endif
 
 NeoSWSerial espSerial(A1, A2);
