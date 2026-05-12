@@ -64,8 +64,10 @@ uart:
             if (only_ws)
               return;
           }
-          if (direction != uart::UART_DIRECTION_RX)
+          if (direction == uart::UART_DIRECTION_TX) {
+            UARTDebug::log_string(direction, bytes);
             return;
+          }
           std::string data(bytes.begin(), bytes.end());
           while (!data.empty() && (unsigned char) data.back() <= 32)
             data.pop_back();
@@ -114,10 +116,10 @@ uart:
           }
           if (data[0] != 'S' || data[1] != '|')
             return;
-          int enc, fa, tf, tv, mn, se, pa, tt, tr, pid, fcode, rp, rcode, ec, e0, e1, e2;
+          int enc, fa, tf, tv, mn, se, pa, tt, tr, pid, fcode, rp, rcode, ec, e0, e1, e2, urx;
           if (sscanf(data.c_str(),
-                       "S|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d",
-                       &enc, &fa, &tf, &tv, &mn, &se, &pa, &tt, &tr, &pid, &fcode, &rp, &rcode, &ec, &e0, &e1, &e2) != 17)
+                       "S|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d",
+                       &enc, &fa, &tf, &tv, &mn, &se, &pa, &tt, &tr, &pid, &fcode, &rp, &rcode, &ec, &e0, &e1, &e2, &urx) != 18)
             return;
           UARTDebug::log_string(direction, bytes);
           id(fase).publish_state(fase_from_code(fcode));
@@ -153,6 +155,7 @@ uart:
           id(err_ring_0).publish_state(e0);
           id(err_ring_1).publish_state(e1);
           id(err_ring_2).publish_state(e2);
+          id(uart_cmd_rx).publish_state(urx);
           if (tf > 0) {
             float pct = 100.0f * (float) fa / (float) tf;
             if (pct > 100.0f)
@@ -167,117 +170,90 @@ uart:
           }
 
 # --- Controles principales (lavado) ---
+# platform: uart envia bytes al bus (template+uart.write no disparaba TX en ESPHome 2025.x).
 button:
-  - platform: template
+  - platform: uart
+    uart_id: uart_bus
     name: "Iniciar programa largo"
     icon: mdi:washing-machine
-    on_press:
-      - uart.write:
-          id: uart_bus
-          data: ">START,L\n"
-  - platform: template
+    data: ">START,L\n"
+  - platform: uart
+    uart_id: uart_bus
     name: "Iniciar programa corto"
     icon: mdi:washing-machine
-    on_press:
-      - uart.write:
-          id: uart_bus
-          data: ">START,C\n"
-  - platform: template
+    data: ">START,C\n"
+  - platform: uart
+    uart_id: uart_bus
     name: "Iniciar programa corto 2"
     icon: mdi:washing-machine
-    on_press:
-      - uart.write:
-          id: uart_bus
-          data: ">START,2\n"
-  - platform: template
+    data: ">START,2\n"
+  - platform: uart
+    uart_id: uart_bus
     name: "Solo vaciado"
     icon: mdi:water-pump
-    on_press:
-      - uart.write:
-          id: uart_bus
-          data: ">START,V\n"
-  - platform: template
+    data: ">START,V\n"
+  - platform: uart
+    uart_id: uart_bus
     name: "Solo centrifugado"
     icon: mdi:rotate-right
-    on_press:
-      - uart.write:
-          id: uart_bus
-          data: ">START,X\n"
-  - platform: template
+    data: ">START,X\n"
+  - platform: uart
+    uart_id: uart_bus
     name: "Parar lavadora"
     icon: mdi:stop-circle
-    on_press:
-      - uart.write:
-          id: uart_bus
-          data: ">STOP\n"
+    data: ">STOP\n"
 
 # --- Recuperación tras corte / error ---
-  - platform: template
+  - platform: uart
+    uart_id: uart_bus
     name: "Reanudar ciclo (confirmar)"
     icon: mdi:play-circle
     entity_category: config
-    on_press:
-      - uart.write:
-          id: uart_bus
-          data: ">RESUME,0\n"
-  - platform: template
+    data: ">RESUME,0\n"
+  - platform: uart
+    uart_id: uart_bus
     name: "Reanudar con centrifugado confirmado"
     icon: mdi:rotate-orbit
     entity_category: config
-    on_press:
-      - uart.write:
-          id: uart_bus
-          data: ">RESUME,1\n"
-  - platform: template
+    data: ">RESUME,1\n"
+  - platform: uart
+    uart_id: uart_bus
     name: "Descartar recuperación"
     icon: mdi:backup-restore
     entity_category: config
-    on_press:
-      - uart.write:
-          id: uart_bus
-          data: ">DISCARD\n"
+    data: ">DISCARD\n"
 
 # --- Mantenimiento jabonera ---
-  - platform: template
+  - platform: uart
+    uart_id: uart_bus
     name: "Test recorrido jabonera"
     icon: mdi:tune-vertical
     entity_category: config
-    on_press:
-      - uart.write:
-          id: uart_bus
-          data: ">JABON\n"
-  - platform: template
+    data: ">JABON\n"
+  - platform: uart
+    uart_id: uart_bus
     name: "Jabonera posición prelavado"
     icon: mdi:numeric-1-circle-outline
     entity_category: config
-    on_press:
-      - uart.write:
-          id: uart_bus
-          data: ">J1\n"
-  - platform: template
+    data: ">J1\n"
+  - platform: uart
+    uart_id: uart_bus
     name: "Jabonera posición lavado"
     icon: mdi:numeric-2-circle-outline
     entity_category: config
-    on_press:
-      - uart.write:
-          id: uart_bus
-          data: ">J2\n"
-  - platform: template
+    data: ">J2\n"
+  - platform: uart
+    uart_id: uart_bus
     name: "Jabonera posición suavizante"
     icon: mdi:numeric-3-circle-outline
     entity_category: config
-    on_press:
-      - uart.write:
-          id: uart_bus
-          data: ">J3\n"
-  - platform: template
+    data: ">J3\n"
+  - platform: uart
+    uart_id: uart_bus
     name: "OLAF (debug)"
     icon: mdi:emoticon-devil-outline
     entity_category: config
-    on_press:
-      - uart.write:
-          id: uart_bus
-          data: "OLAF Q ASHE"
+    data: "OLAF Q ASHE\n"
 
 select:
   - platform: template
@@ -414,6 +390,13 @@ sensor:
     id: err_ring_0
     icon: mdi:history
     entity_category: diagnostic
+    accuracy_decimals: 0
+  - platform: template
+    name: "UART comandos '>' recibidos (Arduino)"
+    id: uart_cmd_rx
+    icon: mdi:counter
+    entity_category: diagnostic
+    state_class: measurement
     accuracy_decimals: 0
 
 binary_sensor:

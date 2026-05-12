@@ -9,7 +9,8 @@
  *   >START,L|C|2|V|X  largo|corto|corto2|vaciado|centrifugar
  *   >STOP   >DISCARD   >RESUME,0|1   >JABON   >J1|>J2|>J3
  * Estado Arduino->ESP (prefijo S|): 18 campos separados por |
- *   S|Enc|Fa|Tf|Tv|Mn|Se|Pa|Tt|Tr|Pid|Fcode|Rp|Rcode|Ec|E0|E1|E2
+ *   S|Enc|Fa|Tf|Tv|Mn|Se|Pa|Tt|Tr|Pid|Fcode|Rp|Rcode|Ec|E0|E1|E2|Rx
+ *   Rx: lineas recibidas por UART ESP con prefijo '>' (debug cable TX ESP->pin15)
  *   Fcode: 0 idle 1 llenado_pre .. 9 desconocido (ver nombre_fase_actual_code)
  *   Rcode recuperacion UI: 0 ninguno 1 error 2 power_loss
  * Boot pendiente: R|rec|rcode|prog|fa|tf|mn|se|ec|ts  (rec=estado EEPROM)
@@ -79,6 +80,8 @@ struct ErrorRingEntry {
 };
 static ErrorRingEntry g_err_ring[3];
 static uint8_t g_err_ring_pos = 0;
+/** Incrementa al recibir una linea no vacia que empieza por '>' (comandos desde ESP/PC). */
+static uint8_t g_uart_cmd_rx_count = 0;
 
 void logMessage(const char* msg);
 bool startLavadora(const char* programa);
@@ -559,12 +562,13 @@ void serialSendStatus()
   int tiempoRestante = tiempoTotal - tiempoTranscurrido;
   char buf[200];
   snprintf(buf, sizeof(buf),
-           "S|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%u|%d|%u|%u|%u|%u|%u\n",
+           "S|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%u|%d|%u|%u|%u|%u|%u|%u\n",
            encendida ? 1 : 0, faseActual, totalFases, tamborVacio, minuto, segundos, paso,
            tiempoTotal, tiempoRestante, programa, (unsigned)nombre_fase_actual_code(),
            g_recovery_ui_pending ? 1 : 0, (unsigned)recovery_reason_wire_code(),
            (unsigned)g_last_error_code, (unsigned)g_err_ring[0].code,
-           (unsigned)g_err_ring[1].code, (unsigned)g_err_ring[2].code);
+           (unsigned)g_err_ring[1].code, (unsigned)g_err_ring[2].code,
+           (unsigned)g_uart_cmd_rx_count);
   Serial.println(buf);
   espSerial.println(buf);
 }
@@ -720,6 +724,7 @@ static void processCommandLine(const char* line)
     return;
   if (p[0] != '>')
     return;
+  g_uart_cmd_rx_count++;
 
   if (!strcmp(p, ">STOP")) {
     stopLavadora();
