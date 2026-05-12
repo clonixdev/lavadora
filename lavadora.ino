@@ -14,6 +14,9 @@
  *   Fcode: 0 idle 1 llenado_pre .. 9 desconocido (ver nombre_fase_actual_code)
  *   Rcode recuperacion UI: 0 ninguno 1 error 2 power_loss
  * Boot pendiente: R|rec|rcode|prog|fa|tf|mn|se|ec|ts  (rec=estado EEPROM)
+ *
+ * Depuracion monitor USB: DEBUG_UART_USB_LINES (1 por defecto) imprime cada linea \n recibida
+ * por espSerial como [ESP RX] ... y por Serial como [USB RX] ... (no se reenvia al ESP).
  */
 #include "recovery_eeprom.h"
 #include "programas_lavadora.h"
@@ -21,6 +24,10 @@
 					
 // Cable: salida del pad TX del modulo ESP (GPIO1) -> A1 (RX). Pad RX del ESP (GPIO3) <- A2 (TX). GND comun.
 // No conectar el pad RX del ESP al A1: ahi solo llegarian datos si el Arduino transmitiera por error a GPIO3.
+#ifndef DEBUG_UART_USB_LINES
+#define DEBUG_UART_USB_LINES 1
+#endif
+
 NeoSWSerial espSerial(A1, A2);
 bool led = true;
 bool encendida = false;
@@ -95,6 +102,8 @@ void setProgramaCorto2(void);
 void setProgramaCentrifugar(void);
 void calcTiempoTotal(void);
 static void processCommandLine(const char* line);
+static void processCommandLineFromEsp(const char* line);
+static void processCommandLineFromPc(const char* line);
 
 static void push_error_ring(uint8_t code, uint8_t fase) {
   g_err_ring[g_err_ring_pos].t_ms = millis();
@@ -703,8 +712,8 @@ void processCommand()
    * retrasar el procesamiento de comandos cortos en espSerial. */
   const size_t chunk = 128;
   for (uint8_t pass = 0; pass < 2; ++pass) {
-    uart_drain_stream(espSerial, s_uart_line_esp, s_uart_len_esp, UART_CMD_CAP, processCommandLine, chunk);
-    uart_drain_stream(Serial, s_uart_line_pc, s_uart_len_pc, UART_CMD_CAP, processCommandLine, chunk);
+    uart_drain_stream(espSerial, s_uart_line_esp, s_uart_len_esp, UART_CMD_CAP, processCommandLineFromEsp, chunk);
+    uart_drain_stream(Serial, s_uart_line_pc, s_uart_len_pc, UART_CMD_CAP, processCommandLineFromPc, chunk);
   }
 }
 
@@ -794,6 +803,24 @@ static void processCommandLine(const char* line)
     return;
   }
   logMessage("!E|unknown");
+}
+
+static void processCommandLineFromEsp(const char* line)
+{
+#if DEBUG_UART_USB_LINES
+  Serial.print(F("[ESP RX] "));
+  Serial.println(line);
+#endif
+  processCommandLine(line);
+}
+
+static void processCommandLineFromPc(const char* line)
+{
+#if DEBUG_UART_USB_LINES
+  Serial.print(F("[USB RX] "));
+  Serial.println(line);
+#endif
+  processCommandLine(line);
 }
 
 bool startLavadora(const char* programa)
