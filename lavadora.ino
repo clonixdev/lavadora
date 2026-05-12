@@ -1,4 +1,9 @@
+#ifndef USE_JABONERA_SERVO
+#define USE_JABONERA_SERVO 0
+#endif
+#if USE_JABONERA_SERVO
 #include <Servo.h>
+#endif
 #include <NeoSWSerial.h>
 #include <stdio.h>
 #include <string.h>
@@ -17,6 +22,9 @@
  *
  * Depuracion monitor USB: DEBUG_UART_USB_LINES (1 por defecto) imprime cada linea \n recibida
  * por espSerial como [ESP RX] ... y por Serial como [USB RX] ... (no se reenvia al ESP).
+ *
+ * Jabonera servo: USE_JABONERA_SERVO 0 desactiva Servo.h, attach y movimientos (prueba UART/timers).
+ *   Rehabilitar: definir USE_JABONERA_SERVO 1 antes de compilar.
  */
 #include "recovery_eeprom.h"
 #include "programas_lavadora.h"
@@ -39,7 +47,9 @@ int segundos = 0;
 int minuto = 0;
 int paso = 0;   // REGISTRO DE PASO PARA EL LAVADO Y EL CICLO DE ACELERACION DEL TANQUE
 int sttone = 0; // TONO INICIAL
+#if USE_JABONERA_SERVO
 Servo jabservo;
+#endif
 int totalFases = 0;
 int tiempoTranscurrido = 0; 
 int ultimoSegundoEnviado = -1;
@@ -308,12 +318,16 @@ void setup()
   digitalWrite(motor, HIGH);
   digitalWrite(bomba, HIGH);
   digitalWrite(bloqueo, HIGH); // BLOQUEO DE PUERTA
+#if USE_JABONERA_SERVO
   /* ServoTimer2 (Timer2) suele irregular con NeoSWSerial y otras ISRs; Servo.h
      (Timer1) da pulsos mas estables con un solo servo en pin digital. */
   jabservo.attach(jabonera, 750, 2250);
   delay(50);
   jabservo.writeMicroseconds(jabPosPreLavado);
   last_jab_servo_angle = jabPosPreLavado;
+#else
+  pinMode(jabonera, INPUT); /* sin servo: pin 3 libre (no PWM al actuador) */
+#endif
   powerOnbuzzerPWM();
 
   wdt_disable();
@@ -484,12 +498,17 @@ void loopTimer()
 
 void calibrarJabonera(int value)
 {
+#if USE_JABONERA_SERVO
   jabservo.writeMicroseconds(value);
   last_jab_servo_angle = value;
+#else
+  (void)value;
+#endif
 }
 
 void calibrarJaboneraTest()
 {
+#if USE_JABONERA_SERVO
   wdt_disable();
   jabservo.writeMicroseconds(jabPosPreLavado);
   last_jab_servo_angle = jabPosPreLavado;
@@ -503,10 +522,12 @@ void calibrarJaboneraTest()
   jabservo.writeMicroseconds(jabPosLavandina);
   last_jab_servo_angle = jabPosLavandina;
   wdt_enable(WDTO_8S);
+#endif
 }
 
 void setJabonera()
 {
+#if USE_JABONERA_SERVO
   if (!encendida || fases == nullptr || faseActual < 0 || faseActual >= totalFases)
     return;
 
@@ -533,6 +554,7 @@ void setJabonera()
     jabservo.writeMicroseconds(target);
     last_jab_servo_angle = target;
   }
+#endif
 }
 
 void loop()
