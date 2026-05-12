@@ -12,7 +12,6 @@ extern int paso;
 extern int acelerado;
 extern int val1, giro, vel1, vel2, motor, bomba;
 
-void setJabonera(void);
 void llenado(void);
 
 void motor_reset_service_state(void);

@@ -231,6 +231,7 @@ static bool restore_from_checkpoint(const WashCheckpoint* cp, bool ack_centrifug
 
   encendida = true;
   save_checkpoint_runtime(REC_RUNNING, ERR_NONE);
+  setJabonera();
   return true;
 }
 
@@ -474,16 +475,27 @@ void calibrarJaboneraTest()
 
 void setJabonera()
 {
+  if (!encendida || fases == nullptr || faseActual < 0 || faseActual >= totalFases)
+    return;
+
   FaseIndex fase = fases[faseActual];
   int target;
-  if (fase.funcion == LLENADO_PRE_LAVADO)
-    target = jabPosPreLavado;
-  else if (fase.funcion == LLENADO_LAVADO)
-    target = jabPosLavado;
-  else if (fase.funcion == LLENADO_SUAVIZANTE)
-    target = jabPosSuavizante;
-  else
-    target = jabPosPreLavado;
+  switch (fase.funcion) {
+    case LLENADO_PRE_LAVADO:
+      target = jabPosPreLavado;
+      break;
+    case LLENADO_LAVADO:
+      target = jabPosLavado;
+      break;
+    case LLENADO_SUAVIZANTE:
+      target = jabPosSuavizante;
+      break;
+    case LLENADO:
+      target = jabPosPreLavado;
+      break;
+    default:
+      return;
+  }
 
   if (target != last_jab_servo_angle) {
     jabservo.write(target);
@@ -586,6 +598,7 @@ void loopLavadora()
   }
 
   FaseIndex fase = fases[faseActual];
+  setJabonera();
 
   if (fase_es_llenado(fase.funcion) && !g_fill_has_seen_full) {
     if (millis() - g_fill_phase_start_ms > FILL_TIMEOUT_MS) {
@@ -632,6 +645,8 @@ void loopLavadora()
     faseActual++;
     paso = 0;
     segundos = 0;
+    if (faseActual < totalFases)
+      setJabonera();
   }
 }
 
@@ -773,6 +788,7 @@ bool startLavadora(const char* programa)
   encendida = 1;
   g_prev_fase_for_fill = -1;
   save_checkpoint_runtime(REC_RUNNING, ERR_NONE);
+  setJabonera();
   return true;
 }
 

@@ -1,5 +1,7 @@
 #include "motor_service.h"
 
+extern int tamborVacio;
+
 static uint8_t cen_sm = 0;
 static unsigned long cen_deadline = 0;
 
@@ -124,14 +126,22 @@ void motor_refresh_outputs(void) {
 
   switch (f.funcion) {
     case LLENADO_LAVADO:
-      setJabonera();
       llenado();
-      lavado_apply_steady_outputs();
+      /* Mientras el tambor no tiene agua, no conmutar el motor: evita picos en
+         la alimentacion que hacen vibrar el servo de la jabonera. */
+      if (tamborVacio == 0) {
+        lavado_apply_steady_outputs();
+      } else {
+        digitalWrite(motor, HIGH);
+        digitalWrite(giro, HIGH);
+        digitalWrite(vel1, HIGH);
+        digitalWrite(vel2, HIGH);
+        digitalWrite(bomba, HIGH);
+      }
       break;
     case LLENADO_PRE_LAVADO:
     case LLENADO:
     case LLENADO_SUAVIZANTE:
-      setJabonera();
       llenado();
       break;
     case LAVADO:
