@@ -36,7 +36,8 @@
 					
 // Cable: salida del pad TX del modulo ESP (GPIO1) -> A1 (RX). Pad RX del ESP (GPIO3) <- A2 (TX). GND comun.
 // No conectar el pad RX del ESP al A1: ahi solo llegarian datos si el Arduino transmitiera por error a GPIO3.
-// Enlace ESP<->Arduino a 4800 baud (mas estable con NeoSWSerial); Serial USB sigue a 9600 para el monitor IDE.
+// Enlace ESP<->Arduino 9600 baud (debe coincidir con uart: baud_rate en ESPHome; ambos firmwares a la vez).
+// Serial USB del IDE sigue a 9600.
 #ifndef DEBUG_UART_USB_LINES
 #define DEBUG_UART_USB_LINES 1
 #endif
@@ -304,7 +305,7 @@ void setup()
 {
 
   Serial.begin(9600);
-  espSerial.begin(4800);
+  espSerial.begin(9600);
   delay(50);
   while (espSerial.available())
     (void)espSerial.read();

@@ -5,7 +5,8 @@
 substitutions:
   nombre_corto: "Lavadora"
 
-# --- UART ESP-01 (atalaya06) <-> Arduino UNO (4800 8N1, GND comun) ---
+# --- UART ESP-01 (atalaya06) <-> Arduino UNO (9600 8N1, GND comun) ---
+# Si cambias baud aqui, debes subir el MISMO valor en lavadora.ino (espSerial.begin) o no habra enlace.
 # (Rama git "wifi": JSON solo por espSerial; mismo NeoSWSerial A1/A2.)
 # El log ">>> ">PING\n"" confirma TX por tx_pin (GPIO1). Referencia de pines ESP8266 / ESP-01:
 #   GPIO1 = TX del modulo -> Arduino A1 (RX soft-serial). GPIO3 = RX del modulo <- Arduino A2 (TX).
@@ -57,7 +58,7 @@ uart:
   id: uart_bus
   tx_pin: GPIO1
   rx_pin: GPIO3
-  baud_rate: 4800
+  baud_rate: 9600
   debug:
     direction: BOTH
     dummy_receiver: true
