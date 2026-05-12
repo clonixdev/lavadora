@@ -13,8 +13,9 @@
  * Comandos ESP->Arduino (prefijo '>'):
  *   >START,L|C|2|V|X  largo|corto|corto2|vaciado|centrifugar
  *   >STOP   >DISCARD   >RESUME,0|1   >JABON   >J1|>J2|>J3   >PING (respuesta OK PONG por Serial/espSerial)
- * Estado Arduino->ESP (prefijo S|): 18 campos separados por |
- *   S|Enc|Fa|Tf|Tv|Mn|Se|Pa|Tt|Tr|Pid|Fcode|Rp|Rcode|Ec|E0|E1|E2|Rx
+ * Estado Arduino->ESP (prefijo S|): 19 campos separados por |
+ *   S|Enc|Fa|Tf|Tv|Mn|Se|Pa|Tt|Tr|Pid|Fcode|Rp|Rcode|Ec|E0|E1|E2|Rx|Besp
+ *   Besp: bytes leidos desde NeoSWSerial (ESP->A1), diagnostico cable/baud (sube aunque no haya linea completa)
  *   Rx: lineas '>' recibidas por UART (cable ESP GPIO1/TX -> Arduino A1=D15, NeoSWSerial RX)
  *   Fcode: 0 idle 1 llenado_pre .. 9 desconocido (ver nombre_fase_actual_code)
  *   Rcode recuperacion UI: 0 ninguno 1 error 2 power_loss
@@ -101,6 +102,8 @@ static ErrorRingEntry g_err_ring[3];
 static uint8_t g_err_ring_pos = 0;
 /** Incrementa al recibir una linea no vacia que empieza por '>' (comandos desde ESP/PC). */
 static uint8_t g_uart_cmd_rx_count = 0;
+/** Bytes leidos de espSerial (cada read()); si Besp no sube al pulsar PING, no llega señal a A1. */
+static uint32_t g_esp_soft_rx_bytes = 0;
 
 void logMessage(const char* msg);
 bool startLavadora(const char* programa);
@@ -595,15 +598,21 @@ void serialSendStatus()
   int tiempoRestante = tiempoTotal - tiempoTranscurrido;
   char buf[200];
   snprintf(buf, sizeof(buf),
-           "S|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%u|%d|%u|%u|%u|%u|%u|%u\n",
+           "S|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%u|%d|%u|%u|%u|%u|%u|%u|%lu\n",
            encendida ? 1 : 0, faseActual, totalFases, tamborVacio, minuto, segundos, paso,
            tiempoTotal, tiempoRestante, programa, (unsigned)nombre_fase_actual_code(),
            g_recovery_ui_pending ? 1 : 0, (unsigned)recovery_reason_wire_code(),
            (unsigned)g_last_error_code, (unsigned)g_err_ring[0].code,
            (unsigned)g_err_ring[1].code, (unsigned)g_err_ring[2].code,
-           (unsigned)g_uart_cmd_rx_count);
+           (unsigned)g_uart_cmd_rx_count, (unsigned long)g_esp_soft_rx_bytes);
   Serial.println(buf);
   espSerial.println(buf);
+#if DEBUG_UART_USB_LINES
+  Serial.print(F("[diag] espSerial bytes="));
+  Serial.print((unsigned long)g_esp_soft_rx_bytes);
+  Serial.print(F(" cmd>'="));
+  Serial.println((unsigned)g_uart_cmd_rx_count);
+#endif
 }
 
 void loopLavadora()
@@ -699,13 +708,15 @@ static size_t s_uart_len_esp;
 static size_t s_uart_len_pc;
 
 static void uart_drain_stream(Stream& s, char* acc, size_t& acc_len, size_t acc_cap,
-                               void (*on_line)(const char*), size_t max_read) {
+                               void (*on_line)(const char*), size_t max_read, uint32_t* rx_byte_count) {
   size_t nread = 0;
   while (s.available() && nread < max_read) {
     int r = s.read();
     if (r < 0)
       break;
     nread++;
+    if (rx_byte_count != nullptr)
+      (*rx_byte_count)++;
     unsigned char uc = (unsigned char)r;
     if (uc == '\r')
       continue;
@@ -734,8 +745,9 @@ void processCommand()
    * retrasar el procesamiento de comandos cortos en espSerial. */
   const size_t chunk = 128;
   for (uint8_t pass = 0; pass < 2; ++pass) {
-    uart_drain_stream(espSerial, s_uart_line_esp, s_uart_len_esp, UART_CMD_CAP, processCommandLineFromEsp, chunk);
-    uart_drain_stream(Serial, s_uart_line_pc, s_uart_len_pc, UART_CMD_CAP, processCommandLineFromPc, chunk);
+    uart_drain_stream(espSerial, s_uart_line_esp, s_uart_len_esp, UART_CMD_CAP, processCommandLineFromEsp, chunk,
+                      &g_esp_soft_rx_bytes);
+    uart_drain_stream(Serial, s_uart_line_pc, s_uart_len_pc, UART_CMD_CAP, processCommandLineFromPc, chunk, nullptr);
   }
 }
 

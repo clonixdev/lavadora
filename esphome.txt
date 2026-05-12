@@ -8,7 +8,7 @@ substitutions:
 # --- Pinout UART ESP-01 (atalaya06) <-> Arduino UNO (9600 8N1, GND comun) ---
 # (Rama git "wifi": el sketch leia JSON solo por espSerial; no habia esphome en ese arbol. Mismo NeoSWSerial A1/A2.)
 # El log ">>> ">PING\n"" confirma que el ESP ENVIA por el pin configurado como tx_pin (GPIO1).
-# Si "UART comandos '>' recibidos" no sube y no ves "<<< OK PONG", el Arduino no recibe en A1.
+# Si "UART comandos" no sube pero "UART bytes NeoSWSerial" sí: llegan bytes pero no línea >... válida (baud/ruido).
 #
 # MUY IMPORTANTE (etiquetas del modulo ESP8266 / ESP-01):
 #   El dato hacia el Arduino sale por el pad **TX del modulo**, que en UART0 es **GPIO1**
@@ -136,9 +136,10 @@ uart:
           if (data[0] != 'S' || data[1] != '|')
             return;
           int enc, fa, tf, tv, mn, se, pa, tt, tr, pid, fcode, rp, rcode, ec, e0, e1, e2, urx;
+          unsigned besp;
           if (sscanf(data.c_str(),
-                       "S|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d",
-                       &enc, &fa, &tf, &tv, &mn, &se, &pa, &tt, &tr, &pid, &fcode, &rp, &rcode, &ec, &e0, &e1, &e2, &urx) != 18)
+                       "S|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%u",
+                       &enc, &fa, &tf, &tv, &mn, &se, &pa, &tt, &tr, &pid, &fcode, &rp, &rcode, &ec, &e0, &e1, &e2, &urx, &besp) != 19)
             return;
           UARTDebug::log_string(direction, bytes);
           id(fase).publish_state(fase_from_code(fcode));
@@ -175,6 +176,7 @@ uart:
           id(err_ring_1).publish_state(e1);
           id(err_ring_2).publish_state(e2);
           id(uart_cmd_rx).publish_state(urx);
+          id(uart_soft_rx_bytes).publish_state(besp);
           if (tf > 0) {
             float pct = 100.0f * (float) fa / (float) tf;
             if (pct > 100.0f)
@@ -415,6 +417,13 @@ sensor:
     id: err_ring_0
     icon: mdi:history
     entity_category: diagnostic
+    accuracy_decimals: 0
+  - platform: template
+    name: "UART bytes NeoSWSerial (Arduino A1)"
+    id: uart_soft_rx_bytes
+    icon: mdi:transmission-tower
+    entity_category: diagnostic
+    state_class: measurement
     accuracy_decimals: 0
   - platform: template
     name: "UART comandos '>' recibidos (Arduino)"
