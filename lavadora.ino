@@ -1,4 +1,4 @@
-#include <ServoTimer2.h>
+#include <Servo.h>
 #include <ArduinoJson.h>
 #include <NeoSWSerial.h>
 #include <string.h>
@@ -18,7 +18,7 @@ int segundos = 0;
 int minuto = 0;
 int paso = 0;   // REGISTRO DE PASO PARA EL LAVADO Y EL CICLO DE ACELERACION DEL TANQUE
 int sttone = 0; // TONO INICIAL
-ServoTimer2 jabservo;
+Servo jabservo;
 int totalFases = 0;
 int tiempoTranscurrido = 0; 
 int ultimoSegundoEnviado = -1;
@@ -279,8 +279,11 @@ void setup()
   digitalWrite(motor, HIGH);
   digitalWrite(bomba, HIGH);
   digitalWrite(bloqueo, HIGH); // BLOQUEO DE PUERTA
-  jabservo.attach(jabonera);
-  jabservo.write(jabPosPreLavado);
+  /* ServoTimer2 (Timer2) suele irregular con NeoSWSerial y otras ISRs; Servo.h
+     (Timer1) da pulsos mas estables con un solo servo en pin digital. */
+  jabservo.attach(jabonera, 750, 2250);
+  delay(50);
+  jabservo.writeMicroseconds(jabPosPreLavado);
   last_jab_servo_angle = jabPosPreLavado;
   powerOnbuzzerPWM();
 
@@ -452,23 +455,23 @@ void loopTimer()
 
 void calibrarJabonera(int value)
 {
-  jabservo.write(value);
+  jabservo.writeMicroseconds(value);
   last_jab_servo_angle = value;
 }
 
 void calibrarJaboneraTest()
 {
   wdt_disable();
-  jabservo.write(jabPosPreLavado);
+  jabservo.writeMicroseconds(jabPosPreLavado);
   last_jab_servo_angle = jabPosPreLavado;
   delay(3000);
-  jabservo.write(jabPosLavado);
+  jabservo.writeMicroseconds(jabPosLavado);
   last_jab_servo_angle = jabPosLavado;
   delay(3000);
-  jabservo.write(jabPosSuavizante);
+  jabservo.writeMicroseconds(jabPosSuavizante);
   last_jab_servo_angle = jabPosSuavizante;
   delay(3000);
-  jabservo.write(jabPosLavandina);
+  jabservo.writeMicroseconds(jabPosLavandina);
   last_jab_servo_angle = jabPosLavandina;
   wdt_enable(WDTO_8S);
 }
@@ -498,7 +501,7 @@ void setJabonera()
   }
 
   if (target != last_jab_servo_angle) {
-    jabservo.write(target);
+    jabservo.writeMicroseconds(target);
     last_jab_servo_angle = target;
   }
 }
