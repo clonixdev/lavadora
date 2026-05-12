@@ -7,10 +7,10 @@
  * UART wire (sin JSON), lineas terminadas en \n:
  * Comandos ESP->Arduino (prefijo '>'):
  *   >START,L|C|2|V|X  largo|corto|corto2|vaciado|centrifugar
- *   >STOP   >DISCARD   >RESUME,0|1   >JABON   >J1|>J2|>J3
+ *   >STOP   >DISCARD   >RESUME,0|1   >JABON   >J1|>J2|>J3   >PING (respuesta OK PONG por Serial/espSerial)
  * Estado Arduino->ESP (prefijo S|): 18 campos separados por |
  *   S|Enc|Fa|Tf|Tv|Mn|Se|Pa|Tt|Tr|Pid|Fcode|Rp|Rcode|Ec|E0|E1|E2|Rx
- *   Rx: lineas recibidas por UART ESP con prefijo '>' (debug cable TX ESP->pin15)
+ *   Rx: lineas '>' recibidas por UART (cable ESP GPIO1/TX -> Arduino A1=D15, NeoSWSerial RX)
  *   Fcode: 0 idle 1 llenado_pre .. 9 desconocido (ver nombre_fase_actual_code)
  *   Rcode recuperacion UI: 0 ninguno 1 error 2 power_loss
  * Boot pendiente: R|rec|rcode|prog|fa|tf|mn|se|ec|ts  (rec=estado EEPROM)
@@ -19,7 +19,9 @@
 #include "programas_lavadora.h"
 #include "motor_service.h"
 					
-NeoSWSerial espSerial(15, 16); //RX TX
+// Cable: salida del pad TX del modulo ESP (GPIO1) -> A1 (RX). Pad RX del ESP (GPIO3) <- A2 (TX). GND comun.
+// No conectar el pad RX del ESP al A1: ahi solo llegarian datos si el Arduino transmitiera por error a GPIO3.
+NeoSWSerial espSerial(A1, A2);
 bool led = true;
 bool encendida = false;
 bool hasError = false;
@@ -696,14 +698,11 @@ static void uart_drain_stream(Stream& s, char* acc, size_t& acc_len, size_t acc_
 
 void processCommand()
 {
-  static bool s_uart_serial_first;
-  s_uart_serial_first = !s_uart_serial_first;
-  const size_t chunk = 48;
-
-  if (s_uart_serial_first) {
-    uart_drain_stream(Serial, s_uart_line_pc, s_uart_len_pc, UART_CMD_CAP, processCommandLine, chunk);
-    uart_drain_stream(espSerial, s_uart_line_esp, s_uart_len_esp, UART_CMD_CAP, processCommandLine, chunk);
-  } else {
+  /* Mismo espSerial que en rama wifi (JSON). Siempre drenar primero el enlace ESP: el monitor
+   * serie en USB puede llenar el buffer de Serial y, con la alternancia previa + chunk pequeño,
+   * retrasar el procesamiento de comandos cortos en espSerial. */
+  const size_t chunk = 128;
+  for (uint8_t pass = 0; pass < 2; ++pass) {
     uart_drain_stream(espSerial, s_uart_line_esp, s_uart_len_esp, UART_CMD_CAP, processCommandLine, chunk);
     uart_drain_stream(Serial, s_uart_line_pc, s_uart_len_pc, UART_CMD_CAP, processCommandLine, chunk);
   }
@@ -788,6 +787,10 @@ static void processCommandLine(const char* line)
   }
   if (!strcmp(p, ">J3")) {
     calibrarJabonera(jabPosSuavizante);
+    return;
+  }
+  if (!strcmp(p, ">PING")) {
+    logMessage("OK PONG");
     return;
   }
   logMessage("!E|unknown");

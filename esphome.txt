@@ -5,6 +5,25 @@
 substitutions:
   nombre_corto: "Lavadora"
 
+# --- Pinout UART ESP-01 (atalaya06) <-> Arduino UNO (9600 8N1, GND comun) ---
+# (Rama git "wifi": el sketch leia JSON solo por espSerial; no habia esphome en ese arbol. Mismo NeoSWSerial A1/A2.)
+# El log ">>> ">PING\n"" confirma que el ESP ENVIA por el pin configurado como tx_pin (GPIO1).
+# Si "UART comandos '>' recibidos" no sube y no ves "<<< OK PONG", el Arduino no recibe en A1.
+#
+# MUY IMPORTANTE (etiquetas del modulo ESP8266 / ESP-01):
+#   El dato hacia el Arduino sale por el pad **TX del modulo**, que en UART0 es **GPIO1**
+#   (no uses el pad **RX / GPIO3** para llevar comandos al Arduino: ese es solo ESP<-Arduino).
+#   Es decir: cable continuo del **TX del ESP (GPIO1)** al **A1 (RX del NeoSWSerial)**.
+#   Arduino A2 (TX NeoSWSerial) -> pad **RX del ESP (GPIO3)**.
+# Si cruzaste TX-TX (GPIO1-A2) y RX-RX (GPIO3-A1), el telemetria puede ir bien y los comandos no.
+#
+# Nivel logico: UNO a 5 V; el ESP manda ~3,3 V. Si tras verificar pads el Rx sigue en 0, medir con
+# multimetro/osciloscopio tension en A1 al pulsar PING (debe cambiar). A veces hace falta
+# nivelador 3,3<->5 V o pull-up debil a 5 V en RX del UNO (consultar esquema seguro antes).
+#
+# UART0 del ESP8266 puede alternar a tx_pin: GPIO15 / rx_pin: GPIO13 (ver doc ESPHome UART);
+# en ESP-01 a menudo solo salen GPIO1/GPIO3 — el swap suele requerir otra placa con esos pines.
+
 esphome:
   name: atalaya06
   friendly_name: "${nombre_corto} Atalaya06"
@@ -254,6 +273,12 @@ button:
     icon: mdi:emoticon-devil-outline
     entity_category: config
     data: "OLAF Q ASHE\n"
+  - platform: uart
+    uart_id: uart_bus
+    name: "PING PONG (debug)"
+    icon: mdi:table-tennis
+    entity_category: config
+    data: ">PING\n"
 
 select:
   - platform: template
