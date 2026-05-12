@@ -707,7 +707,13 @@ void processCommand()
 
 static void processCommandLine(const char* line)
 {
-  const char* p = line;
+  static char buf[UART_CMD_CAP];
+  strncpy(buf, line, sizeof(buf) - 1);
+  buf[sizeof(buf) - 1] = '\0';
+  size_t n = strlen(buf);
+  while (n > 0 && (unsigned char)buf[n - 1] <= 32)
+    buf[--n] = '\0';
+  char* p = buf;
   while (*p == ' ' || *p == '\t')
     p++;
   if (*p == '\0')
@@ -755,6 +761,8 @@ static void processCommandLine(const char* line)
         logMessage("!E|badprog");
         return;
     }
+    if (g_recovery_ui_pending)
+      discard_recovery_state();
     if (startLavadora(prog))
       logMessage("OK START");
     else

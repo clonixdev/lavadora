@@ -172,32 +172,44 @@ button:
     name: "Iniciar programa largo"
     icon: mdi:washing-machine
     on_press:
-      - uart.write: ">START,L\n"
+      - uart.write:
+          id: uart_bus
+          data: ">START,L\n"
   - platform: template
     name: "Iniciar programa corto"
     icon: mdi:washing-machine
     on_press:
-      - uart.write: ">START,C\n"
+      - uart.write:
+          id: uart_bus
+          data: ">START,C\n"
   - platform: template
     name: "Iniciar programa corto 2"
     icon: mdi:washing-machine
     on_press:
-      - uart.write: ">START,2\n"
+      - uart.write:
+          id: uart_bus
+          data: ">START,2\n"
   - platform: template
     name: "Solo vaciado"
     icon: mdi:water-pump
     on_press:
-      - uart.write: ">START,V\n"
+      - uart.write:
+          id: uart_bus
+          data: ">START,V\n"
   - platform: template
     name: "Solo centrifugado"
     icon: mdi:rotate-right
     on_press:
-      - uart.write: ">START,X\n"
+      - uart.write:
+          id: uart_bus
+          data: ">START,X\n"
   - platform: template
     name: "Parar lavadora"
     icon: mdi:stop-circle
     on_press:
-      - uart.write: ">STOP\n"
+      - uart.write:
+          id: uart_bus
+          data: ">STOP\n"
 
 # --- Recuperación tras corte / error ---
   - platform: template
@@ -205,19 +217,25 @@ button:
     icon: mdi:play-circle
     entity_category: config
     on_press:
-      - uart.write: ">RESUME,0\n"
+      - uart.write:
+          id: uart_bus
+          data: ">RESUME,0\n"
   - platform: template
     name: "Reanudar con centrifugado confirmado"
     icon: mdi:rotate-orbit
     entity_category: config
     on_press:
-      - uart.write: ">RESUME,1\n"
+      - uart.write:
+          id: uart_bus
+          data: ">RESUME,1\n"
   - platform: template
     name: "Descartar recuperación"
     icon: mdi:backup-restore
     entity_category: config
     on_press:
-      - uart.write: ">DISCARD\n"
+      - uart.write:
+          id: uart_bus
+          data: ">DISCARD\n"
 
 # --- Mantenimiento jabonera ---
   - platform: template
@@ -225,31 +243,41 @@ button:
     icon: mdi:tune-vertical
     entity_category: config
     on_press:
-      - uart.write: ">JABON\n"
+      - uart.write:
+          id: uart_bus
+          data: ">JABON\n"
   - platform: template
     name: "Jabonera posición prelavado"
     icon: mdi:numeric-1-circle-outline
     entity_category: config
     on_press:
-      - uart.write: ">J1\n"
+      - uart.write:
+          id: uart_bus
+          data: ">J1\n"
   - platform: template
     name: "Jabonera posición lavado"
     icon: mdi:numeric-2-circle-outline
     entity_category: config
     on_press:
-      - uart.write: ">J2\n"
+      - uart.write:
+          id: uart_bus
+          data: ">J2\n"
   - platform: template
     name: "Jabonera posición suavizante"
     icon: mdi:numeric-3-circle-outline
     entity_category: config
     on_press:
-      - uart.write: ">J3\n"
+      - uart.write:
+          id: uart_bus
+          data: ">J3\n"
   - platform: template
     name: "OLAF (debug)"
     icon: mdi:emoticon-devil-outline
     entity_category: config
     on_press:
-      - uart.write: "OLAF Q ASHE"
+      - uart.write:
+          id: uart_bus
+          data: "OLAF Q ASHE"
 
 select:
   - platform: template
@@ -271,16 +299,18 @@ select:
           condition:
             lambda: "return id(programa_select).state != std::string(\"---\");"
           then:
-            - uart.write: !lambda |-
-                const std::string &v = id(programa_select).state;
-                char c = 'L';
-                if (v == "Corto") c = 'C';
-                else if (v == "Corto 2") c = '2';
-                else if (v == "Vaciado") c = 'V';
-                else if (v == "Centrifugar") c = 'X';
-                else if (v == "Largo") c = 'L';
-                std::string out = std::string(">START,") + c + "\n";
-                return std::vector<uint8_t>(out.begin(), out.end());
+            - uart.write:
+                id: uart_bus
+                data: !lambda |-
+                  const std::string &v = id(programa_select).state;
+                  char c = 'L';
+                  if (v == "Corto") c = 'C';
+                  else if (v == "Corto 2") c = '2';
+                  else if (v == "Vaciado") c = 'V';
+                  else if (v == "Centrifugar") c = 'X';
+                  else if (v == "Largo") c = 'L';
+                  std::string out = std::string(">START,") + c + "\n";
+                  return std::vector<uint8_t>(out.begin(), out.end());
 
 sensor:
   - platform: template
