@@ -39,9 +39,6 @@ wifi:
 
 captive_portal:
 
-# Declara el componente json para enlazar ArduinoJson (includes del compilador), sin usar un .h en /config/.
-json:
-
 uart:
   id: uart_bus
   tx_pin: GPIO1
@@ -74,118 +71,98 @@ uart:
             data.pop_back();
           while (!data.empty() && (unsigned char) data.front() <= 32)
             data.erase(0, 1);
-          if (data.empty() || data.front() != '{')
+          if (data.size() < 2)
             return;
-          JsonDocument doc;
-          DeserializationError err = deserializeJson(doc, data);
-          if (err)
+          if (data[0] == '!' && data[1] == 'E' && data.size() > 2 && data[2] == '|') {
+            id(ultimo_error_txt).publish_state(data.substr(3));
             return;
-          JsonObject root = doc.as< JsonObject >();
-          auto get_int = [&](const char *a, const char *b, int def) -> int {
-            if (!root[a].isNull())
-              return static_cast<int>(root[a].as< double >());
-            if (b && !root[b].isNull())
-              return static_cast<int>(root[b].as< double >());
-            return def;
+          }
+          auto fase_from_code = [](int c) -> const char * {
+            switch (c) {
+              case 0: return "idle";
+              case 1: return "llenado_pre";
+              case 2: return "llenado_lavado";
+              case 3: return "llenado_suav";
+              case 4: return "llenado";
+              case 5: return "lavado";
+              case 6: return "vaciado";
+              case 7: return "centrifugar";
+              case 8: return "espera";
+              default: return "desconocido";
+            }
           };
-          bool looks_like_status = !root["Encendida"].isNull() || !root["FaseActual"].isNull() || !root["faseActual"].isNull() ||
-              !root["ProgramaId"].isNull() || !root["TamborVacio"].isNull() || !root["TiempoTotal"].isNull() ||
-              !root["recovery_pending"].isNull() || !root["error"].isNull();
-          if (!looks_like_status)
+          if (data[0] == 'R' && data[1] == '|') {
+            int rstate, rcode, prog, fa, tf, mn, se, ec, ts;
+            if (sscanf(data.c_str(), "R|%d|%d|%d|%d|%d|%d|%d|%d|%d", &rstate, &rcode, &prog, &fa, &tf, &mn, &se, &ec, &ts) == 9) {
+              UARTDebug::log_string(direction, bytes);
+              id(recovery_pending).publish_state(true);
+              id(programa_id).publish_state(prog);
+              id(faseactual).publish_state(fa);
+              id(total_fases).publish_state(tf);
+              id(minuto).publish_state(mn);
+              id(segundo).publish_state(se);
+              id(last_error_code).publish_state(ec);
+              id(tambor_guardado).publish_state(ts);
+              const char *rr = "";
+              if (rcode == 1)
+                rr = "error";
+              else if (rcode == 2)
+                rr = "power_loss";
+              id(recovery_reason).publish_state(rr);
+            }
+            return;
+          }
+          if (data[0] != 'S' || data[1] != '|')
+            return;
+          int enc, fa, tf, tv, mn, se, pa, tt, tr, pid, fcode, rp, rcode, ec, e0, e1, e2;
+          if (sscanf(data.c_str(),
+                       "S|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d",
+                       &enc, &fa, &tf, &tv, &mn, &se, &pa, &tt, &tr, &pid, &fcode, &rp, &rcode, &ec, &e0, &e1, &e2) != 17)
             return;
           UARTDebug::log_string(direction, bytes);
-
-          if (!root["Fase"].isNull())
-            id(fase).publish_state(root["Fase"].as< const char * >());
-
-          int fa = get_int("FaseActual", "faseActual", 0);
+          id(fase).publish_state(fase_from_code(fcode));
           id(faseactual).publish_state(fa);
-
-          int mn = get_int("Minuto", "minuto", 0);
           id(minuto).publish_state(mn);
-
-          if (!root["Segundo"].isNull() || !root["segundo"].isNull())
-            id(segundo).publish_state(get_int("Segundo", "segundo", 0));
-
-          if (!root["Paso"].isNull())
-            id(paso_motor).publish_state(static_cast<int>(root["Paso"].as< double >()));
-
-          if (!root["Encendida"].isNull())
-            id(encendida).publish_state(root["Encendida"].as< bool >());
-
-          if (!root["TamborVacio"].isNull()) {
-            int tv = static_cast<int>(root["TamborVacio"].as< double >());
-            id(tambor_vacio).publish_state(tv);
-            id(tambor_lleno).publish_state(tv == 0);
-          }
-
-          if (!root["TiempoTotal"].isNull())
-            id(tiempo_total).publish_state(static_cast<int>(root["TiempoTotal"].as< double >()));
-
-          if (!root["TiempoRestante"].isNull())
-            id(tiempo_restante).publish_state(static_cast<int>(root["TiempoRestante"].as< double >()));
-
-          int tf = get_int("totalFases", nullptr, 0);
+          id(segundo).publish_state(se);
+          id(paso_motor).publish_state(pa);
+          id(encendida).publish_state(enc != 0);
+          id(tambor_vacio).publish_state(tv);
+          id(tambor_lleno).publish_state(tv == 0);
+          id(tiempo_total).publish_state(tt);
+          id(tiempo_restante).publish_state(tr);
           id(total_fases).publish_state(tf);
-
-          if (!root["ProgramaId"].isNull() || !root["programa"].isNull()) {
-            int pid = !root["ProgramaId"].isNull()
-                          ? static_cast<int>(root["ProgramaId"].as< double >())
-                          : static_cast<int>(root["programa"].as< double >());
-            id(programa_id).publish_state(pid);
-            const char *pn = "Desconocido";
-            switch (pid) {
-              case 1: pn = "Largo"; break;
-              case 2: pn = "Corto"; break;
-              case 3: pn = "Vaciado"; break;
-              case 4: pn = "Corto 2"; break;
-              case 5: pn = "Centrifugar"; break;
-              default: break;
-            }
-            id(programa_nombre).publish_state(pn);
+          id(programa_id).publish_state(pid);
+          const char *pn = "Desconocido";
+          switch (pid) {
+            case 1: pn = "Largo"; break;
+            case 2: pn = "Corto"; break;
+            case 3: pn = "Vaciado"; break;
+            case 4: pn = "Corto 2"; break;
+            case 5: pn = "Centrifugar"; break;
+            default: break;
           }
-
-          bool rp = false;
-          if (!root["recovery_pending"].isNull())
-            rp = root["recovery_pending"].as< bool >();
-          id(recovery_pending).publish_state(rp);
-
-          const char *rr = nullptr;
-          if (!root["recovery_reason"].isNull())
-            rr = root["recovery_reason"].as< const char * >();
-          else if (!root["reason"].isNull())
-            rr = root["reason"].as< const char * >();
-          if (rr && rr[0])
-            id(recovery_reason).publish_state(rr);
-
-          if (!root["last_error_code"].isNull())
-            id(last_error_code).publish_state(static_cast<int>(root["last_error_code"].as< double >()));
-
-          if (!root["ErrRing0"].isNull())
-            id(err_ring_0).publish_state(static_cast<int>(root["ErrRing0"].as< double >()));
-          if (!root["ErrRing1"].isNull())
-            id(err_ring_1).publish_state(static_cast<int>(root["ErrRing1"].as< double >()));
-          if (!root["ErrRing2"].isNull())
-            id(err_ring_2).publish_state(static_cast<int>(root["ErrRing2"].as< double >()));
-
-          if (!root["error"].isNull())
-            id(ultimo_error_txt).publish_state(root["error"].as< const char * >());
-
-          if (!root["tambor_saved"].isNull())
-            id(tambor_guardado).publish_state(static_cast<int>(root["tambor_saved"].as< double >()));
-
-          if (tf > 0 && !root["FaseActual"].isNull()) {
+          id(programa_nombre).publish_state(pn);
+          id(recovery_pending).publish_state(rp != 0);
+          const char *rr2 = "";
+          if (rcode == 1)
+            rr2 = "error";
+          else if (rcode == 2)
+            rr2 = "power_loss";
+          id(recovery_reason).publish_state(rr2);
+          id(last_error_code).publish_state(ec);
+          id(err_ring_0).publish_state(e0);
+          id(err_ring_1).publish_state(e1);
+          id(err_ring_2).publish_state(e2);
+          if (tf > 0) {
             float pct = 100.0f * (float) fa / (float) tf;
-            if (pct > 100.0f) pct = 100.0f;
+            if (pct > 100.0f)
+              pct = 100.0f;
             id(avance_ciclo_pct).publish_state(pct);
           }
-
-          if (!root["Fase"].isNull() && (!root["FaseActual"].isNull() || !root["faseActual"].isNull())) {
+          {
             char buf[160];
-            int trest = !root["TiempoRestante"].isNull() ? static_cast<int>(root["TiempoRestante"].as< double >()) : 0;
             snprintf(buf, sizeof(buf), "%s · Fase %d/%d · %d min fase · %d min rest · %s",
-                     root["Fase"].as< const char * >(), fa, tf, mn, trest,
-                     id(encendida).state ? "En marcha" : "Parada");
+                     fase_from_code(fcode), fa, tf, mn, tr, enc ? "En marcha" : "Parada");
             id(estado_resumen).publish_state(buf);
           }
 
@@ -195,32 +172,32 @@ button:
     name: "Iniciar programa largo"
     icon: mdi:washing-machine
     on_press:
-      - uart.write: "{\"command\":\"start\", \"programa\":\"largo\"}\n"
+      - uart.write: ">START,L\n"
   - platform: template
     name: "Iniciar programa corto"
     icon: mdi:washing-machine
     on_press:
-      - uart.write: "{\"command\":\"start\", \"programa\":\"corto\"}\n"
+      - uart.write: ">START,C\n"
   - platform: template
     name: "Iniciar programa corto 2"
     icon: mdi:washing-machine
     on_press:
-      - uart.write: "{\"command\":\"start\", \"programa\":\"corto2\"}\n"
+      - uart.write: ">START,2\n"
   - platform: template
     name: "Solo vaciado"
     icon: mdi:water-pump
     on_press:
-      - uart.write: "{\"command\":\"start\", \"programa\":\"vaciado\"}\n"
+      - uart.write: ">START,V\n"
   - platform: template
     name: "Solo centrifugado"
     icon: mdi:rotate-right
     on_press:
-      - uart.write: "{\"command\":\"start\", \"programa\":\"centrifugar\"}\n"
+      - uart.write: ">START,X\n"
   - platform: template
     name: "Parar lavadora"
     icon: mdi:stop-circle
     on_press:
-      - uart.write: "{\"command\":\"stop\"}\n"
+      - uart.write: ">STOP\n"
 
 # --- Recuperación tras corte / error ---
   - platform: template
@@ -228,19 +205,19 @@ button:
     icon: mdi:play-circle
     entity_category: config
     on_press:
-      - uart.write: "{\"command\":\"resume\",\"confirm\":true}\n"
+      - uart.write: ">RESUME,0\n"
   - platform: template
     name: "Reanudar con centrifugado confirmado"
     icon: mdi:rotate-orbit
     entity_category: config
     on_press:
-      - uart.write: "{\"command\":\"resume\",\"confirm\":true,\"ack_centrifuge\":true}\n"
+      - uart.write: ">RESUME,1\n"
   - platform: template
     name: "Descartar recuperación"
     icon: mdi:backup-restore
     entity_category: config
     on_press:
-      - uart.write: "{\"command\":\"discard_recovery\"}\n"
+      - uart.write: ">DISCARD\n"
 
 # --- Mantenimiento jabonera ---
   - platform: template
@@ -248,25 +225,25 @@ button:
     icon: mdi:tune-vertical
     entity_category: config
     on_press:
-      - uart.write: "{\"command\":\"jabon\"}\n"
+      - uart.write: ">JABON\n"
   - platform: template
     name: "Jabonera posición prelavado"
     icon: mdi:numeric-1-circle-outline
     entity_category: config
     on_press:
-      - uart.write: "{\"command\":\"jabon1\"}\n"
+      - uart.write: ">J1\n"
   - platform: template
     name: "Jabonera posición lavado"
     icon: mdi:numeric-2-circle-outline
     entity_category: config
     on_press:
-      - uart.write: "{\"command\":\"jabon2\"}\n"
+      - uart.write: ">J2\n"
   - platform: template
     name: "Jabonera posición suavizante"
     icon: mdi:numeric-3-circle-outline
     entity_category: config
     on_press:
-      - uart.write: "{\"command\":\"jabon3\"}\n"
+      - uart.write: ">J3\n"
   - platform: template
     name: "OLAF (debug)"
     icon: mdi:emoticon-devil-outline
@@ -296,13 +273,13 @@ select:
           then:
             - uart.write: !lambda |-
                 const std::string &v = id(programa_select).state;
-                std::string p = "largo";
-                if (v == "Corto") p = "corto";
-                else if (v == "Corto 2") p = "corto2";
-                else if (v == "Vaciado") p = "vaciado";
-                else if (v == "Centrifugar") p = "centrifugar";
-                else if (v == "Largo") p = "largo";
-                std::string out = std::string("{\"command\":\"start\",\"programa\":\"") + p + "\"}\n";
+                char c = 'L';
+                if (v == "Corto") c = 'C';
+                else if (v == "Corto 2") c = '2';
+                else if (v == "Vaciado") c = 'V';
+                else if (v == "Centrifugar") c = 'X';
+                else if (v == "Largo") c = 'L';
+                std::string out = std::string(">START,") + c + "\n";
                 return std::vector<uint8_t>(out.begin(), out.end());
 
 sensor:

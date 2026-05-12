@@ -1,8 +1,19 @@
 #include <Servo.h>
-#include <ArduinoJson.h>
 #include <NeoSWSerial.h>
+#include <stdio.h>
 #include <string.h>
 #include <avr/wdt.h>
+/*
+ * UART wire (sin JSON), lineas terminadas en \n:
+ * Comandos ESP->Arduino (prefijo '>'):
+ *   >START,L|C|2|V|X  largo|corto|corto2|vaciado|centrifugar
+ *   >STOP   >DISCARD   >RESUME,0|1   >JABON   >J1|>J2|>J3
+ * Estado Arduino->ESP (prefijo S|): 18 campos separados por |
+ *   S|Enc|Fa|Tf|Tv|Mn|Se|Pa|Tt|Tr|Pid|Fcode|Rp|Rcode|Ec|E0|E1|E2
+ *   Fcode: 0 idle 1 llenado_pre .. 9 desconocido (ver nombre_fase_actual_code)
+ *   Rcode recuperacion UI: 0 ninguno 1 error 2 power_loss
+ * Boot pendiente: R|rec|rcode|prog|fa|tf|mn|se|ec|ts  (rec=estado EEPROM)
+ */
 #include "recovery_eeprom.h"
 #include "programas_lavadora.h"
 #include "motor_service.h"
@@ -69,7 +80,7 @@ struct ErrorRingEntry {
 static ErrorRingEntry g_err_ring[3];
 static uint8_t g_err_ring_pos = 0;
 
-void logMessage(String msg);
+void logMessage(const char* msg);
 bool startLavadora(const char* programa);
 void errorbuzzerPWM(void);
 void setProgramaLargo(void);
@@ -78,7 +89,7 @@ void setProgramaVaciado(void);
 void setProgramaCorto2(void);
 void setProgramaCentrifugar(void);
 void calcTiempoTotal(void);
-static void processJsonCommandLine(const char* line);
+static void processCommandLine(const char* line);
 
 static void push_error_ring(uint8_t code, uint8_t fase) {
   g_err_ring[g_err_ring_pos].t_ms = millis();
@@ -148,19 +159,14 @@ static bool checkpoint_matches_program(const WashCheckpoint* cp) {
 }
 
 static void send_boot_recovery_json(const WashCheckpoint* cp) {
-  JsonDocument doc;
-  doc["recovery_pending"] = true;
-  doc["reason"] = (cp->recovery_state == REC_ERROR) ? "error" : "power_loss";
-  doc["programa"] = cp->programa;
-  doc["faseActual"] = cp->faseActual;
-  doc["totalFases"] = cp->totalFases_cp;
-  doc["minuto"] = cp->minuto;
-  doc["segundo"] = cp->segundos;
-  doc["last_error_code"] = cp->last_error_code;
-  doc["tambor_saved"] = cp->tambor_saved;
-  String out;
-  serializeJson(doc, out);
-  logMessage(out);
+  uint8_t rcode = (cp->recovery_state == REC_ERROR) ? 1u : 2u;
+  char buf[96];
+  snprintf(buf, sizeof(buf), "R|%u|%u|%u|%u|%u|%u|%u|%u|%u\n",
+           (unsigned)cp->recovery_state, (unsigned)rcode, (unsigned)cp->programa,
+           (unsigned)cp->faseActual, (unsigned)cp->totalFases_cp, (unsigned)cp->minuto,
+           (unsigned)cp->segundos, (unsigned)cp->last_error_code, (unsigned)cp->tambor_saved);
+  Serial.println(buf);
+  espSerial.println(buf);
 }
 
 static void trigger_error_checkpoint(uint8_t err_code, const char* json_line) {
@@ -236,20 +242,28 @@ static bool restore_from_checkpoint(const WashCheckpoint* cp, bool ack_centrifug
   return true;
 }
 
-static const char* nombre_fase_actual_json(void) {
+static uint8_t nombre_fase_actual_code(void) {
   if (!encendida || fases == nullptr || faseActual < 0 || faseActual >= totalFases)
-    return "idle";
+    return 0;
   switch (fases[faseActual].funcion) {
-    case LLENADO_PRE_LAVADO: return "llenado_pre";
-    case LLENADO_LAVADO: return "llenado_lavado";
-    case LLENADO_SUAVIZANTE: return "llenado_suav";
-    case LLENADO: return "llenado";
-    case LAVADO: return "lavado";
-    case VACIADO: return "vaciado";
-    case CENTRIFUGAR: return "centrifugar";
-    case ESPERA: return "espera";
-    default: return "desconocido";
+    case LLENADO_PRE_LAVADO: return 1;
+    case LLENADO_LAVADO: return 2;
+    case LLENADO_SUAVIZANTE: return 3;
+    case LLENADO: return 4;
+    case LAVADO: return 5;
+    case VACIADO: return 6;
+    case CENTRIFUGAR: return 7;
+    case ESPERA: return 8;
+    default: return 9;
   }
+}
+
+static uint8_t recovery_reason_wire_code(void) {
+  if (g_recovery_reason[0] == '\0')
+    return 0;
+  if (!strncmp(g_recovery_reason, "error", 5))
+    return 1;
+  return 2;
 }
 
 // CONFIGURACION DE PINES
@@ -535,38 +549,24 @@ void loop()
   wdt_reset();
 }
 
-void logMessage(String msg) {
+void logMessage(const char* msg) {
   Serial.println(msg);
   espSerial.println(msg);
 }
 
 void serialSendStatus()
 {
-	JsonDocument doc;
-	doc["Encendida"] = encendida;
-  doc["FaseActual"] = faseActual;
-  doc["totalFases"] = totalFases;
-	doc["TamborVacio"] = tamborVacio;
-	doc["Minuto"] = minuto;
-	doc["Segundo"] = segundos;
-	doc["Paso"] = paso;
-	doc["TiempoTotal"] = tiempoTotal;
   int tiempoRestante = tiempoTotal - tiempoTranscurrido;
-	doc["TiempoRestante"] = tiempoRestante;
-  doc["ProgramaId"] = programa;
-  doc["Fase"] = nombre_fase_actual_json();
-  doc["recovery_pending"] = g_recovery_ui_pending;
-  if (g_recovery_reason[0] != '\0')
-    doc["recovery_reason"] = g_recovery_reason;
-  doc["last_error_code"] = g_last_error_code;
-  doc["ErrRing0"] = g_err_ring[0].code;
-  doc["ErrRing1"] = g_err_ring[1].code;
-  doc["ErrRing2"] = g_err_ring[2].code;
-  
-  serializeJson(doc, Serial);
-	serializeJson(doc, espSerial);
-  Serial.println();
-	espSerial.println();
+  char buf[200];
+  snprintf(buf, sizeof(buf),
+           "S|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%u|%d|%u|%u|%u|%u|%u\n",
+           encendida ? 1 : 0, faseActual, totalFases, tamborVacio, minuto, segundos, paso,
+           tiempoTotal, tiempoRestante, programa, (unsigned)nombre_fase_actual_code(),
+           g_recovery_ui_pending ? 1 : 0, (unsigned)recovery_reason_wire_code(),
+           (unsigned)g_last_error_code, (unsigned)g_err_ring[0].code,
+           (unsigned)g_err_ring[1].code, (unsigned)g_err_ring[2].code);
+  Serial.println(buf);
+  espSerial.println(buf);
 }
 
 void loopLavadora()
@@ -606,7 +606,7 @@ void loopLavadora()
 
   if (fase_es_llenado(fase.funcion) && !g_fill_has_seen_full) {
     if (millis() - g_fill_phase_start_ms > FILL_TIMEOUT_MS) {
-      trigger_error_checkpoint(ERR_FILL_TIMEOUT, "{\"error\":\"Timeout de llenado\",\"code\":1}");
+      trigger_error_checkpoint(ERR_FILL_TIMEOUT, "!E|Timeout llenado");
       return;
     }
   }
@@ -654,7 +654,8 @@ void loopLavadora()
   }
 }
 
-static const size_t UART_CMD_CAP = 220;
+/* Comandos UART + \n caben en ~100 B; dos buffers pequeños para no saturar RAM del UNO (2 KiB). */
+static const size_t UART_CMD_CAP = 112;
 static char s_uart_line_esp[UART_CMD_CAP];
 static char s_uart_line_pc[UART_CMD_CAP];
 static size_t s_uart_len_esp;
@@ -696,117 +697,93 @@ void processCommand()
   const size_t chunk = 48;
 
   if (s_uart_serial_first) {
-    uart_drain_stream(Serial, s_uart_line_pc, s_uart_len_pc, UART_CMD_CAP, processJsonCommandLine, chunk);
-    uart_drain_stream(espSerial, s_uart_line_esp, s_uart_len_esp, UART_CMD_CAP, processJsonCommandLine, chunk);
+    uart_drain_stream(Serial, s_uart_line_pc, s_uart_len_pc, UART_CMD_CAP, processCommandLine, chunk);
+    uart_drain_stream(espSerial, s_uart_line_esp, s_uart_len_esp, UART_CMD_CAP, processCommandLine, chunk);
   } else {
-    uart_drain_stream(espSerial, s_uart_line_esp, s_uart_len_esp, UART_CMD_CAP, processJsonCommandLine, chunk);
-    uart_drain_stream(Serial, s_uart_line_pc, s_uart_len_pc, UART_CMD_CAP, processJsonCommandLine, chunk);
+    uart_drain_stream(espSerial, s_uart_line_esp, s_uart_len_esp, UART_CMD_CAP, processCommandLine, chunk);
+    uart_drain_stream(Serial, s_uart_line_pc, s_uart_len_pc, UART_CMD_CAP, processCommandLine, chunk);
   }
 }
 
-static void processJsonCommandLine(const char* line)
+static void processCommandLine(const char* line)
 {
   const char* p = line;
   while (*p == ' ' || *p == '\t')
     p++;
   if (*p == '\0')
     return;
-  if (*p != '{')
+  if (p[0] != '>')
     return;
 
-  JsonDocument doc;
-  DeserializationError error = deserializeJson(doc, p);
-  if (error) {
-    static unsigned long s_last_json_err_ms;
-    unsigned long now = millis();
-    if (now - s_last_json_err_ms >= 2000UL) {
-      s_last_json_err_ms = now;
-      logMessage("{\"error\":\"Invalid JSON line\"}");
-    }
-    return;
-  }
-
-  if (!doc.containsKey("command")) {
-    logMessage("{\"error\":\"Missing 'command' key\"}");
-    return;
-  }
-  const char* command = doc["command"];
-
-  if (strcmp(command, "start") == 0)
-  {
-    if (doc.containsKey("programa")) {
-      const char* prog = doc["programa"];
-      if (startLavadora(prog))
-        logMessage("{\"status\":\"ok\",\"command\":\"start\"}");
-    } else {
-      logMessage("{\"error\":\"Invalid Command Programa no definido\"}");
-      return;
-    }
-  }
-  else if (strcmp(command, "stop") == 0)
-  {
+  if (!strcmp(p, ">STOP")) {
     stopLavadora();
-    logMessage("{\"status\":\"ok\",\"command\":\"stop\"}");
+    logMessage("OK STOP");
+    return;
   }
-  else if (strcmp(command, "discard_recovery") == 0)
-  {
+  if (!strcmp(p, ">DISCARD")) {
     discard_recovery_state();
-    logMessage("{\"status\":\"ok\",\"command\":\"discard_recovery\"}");
+    logMessage("OK DISCARD");
+    return;
   }
-  else if (strcmp(command, "resume") == 0)
-  {
-    bool confirm = doc["confirm"].as<bool>();
-    bool ackCent = doc["ack_centrifuge"].as<bool>();
-    if (!confirm) {
-      logMessage("{\"error\":\"resume requiere confirm:true\"}");
-      return;
-    }
+  if (!strncmp(p, ">RESUME,", 8) && (p[8] == '0' || p[8] == '1') && p[9] == '\0') {
+    bool ackCent = (p[8] == '1');
     WashCheckpoint cp;
     if (!checkpoint_read(&cp)) {
-      logMessage("{\"error\":\"Sin checkpoint valido\"}");
+      logMessage("!E|no_checkpoint");
       return;
     }
     if (cp.recovery_state != REC_RUNNING && cp.recovery_state != REC_ERROR) {
-      logMessage("{\"error\":\"No hay recuperacion pendiente\"}");
+      logMessage("!E|no_recovery");
       return;
     }
     if (!restore_from_checkpoint(&cp, ackCent)) {
-      logMessage("{\"error\":\"No se pudo reanudar; si la fase es centrifugar envie ack_centrifuge:true\"}");
+      logMessage("!E|resume_fail");
       return;
     }
-    logMessage("{\"status\":\"ok\",\"command\":\"resume\"}");
+    logMessage("OK RESUME");
+    return;
   }
-  else if (strcmp(command, "jabon") == 0)
-  {
+  if (!strncmp(p, ">START,", 7) && p[7] != '\0' && p[8] == '\0') {
+    const char* prog = nullptr;
+    switch (p[7]) {
+      case 'L': prog = "largo"; break;
+      case 'C': prog = "corto"; break;
+      case '2': prog = "corto2"; break;
+      case 'V': prog = "vaciado"; break;
+      case 'X': prog = "centrifugar"; break;
+      default:
+        logMessage("!E|badprog");
+        return;
+    }
+    if (startLavadora(prog))
+      logMessage("OK START");
+    else
+      logMessage("!E|start_failed");
+    return;
+  }
+  if (!strcmp(p, ">JABON")) {
     calibrarJaboneraTest();
     return;
   }
-  else if (strcmp(command, "jabon1") == 0)
-  {
+  if (!strcmp(p, ">J1")) {
     calibrarJabonera(jabPosPreLavado);
     return;
   }
-  else if (strcmp(command, "jabon2") == 0)
-  {
+  if (!strcmp(p, ">J2")) {
     calibrarJabonera(jabPosLavado);
     return;
   }
-  else if (strcmp(command, "jabon3") == 0)
-  {
+  if (!strcmp(p, ">J3")) {
     calibrarJabonera(jabPosSuavizante);
     return;
   }
-  else
-  {
-    logMessage("{\"error\":\"Unknown command\"}");
-  }
+  logMessage("!E|unknown");
 }
-
 
 bool startLavadora(const char* programa)
 {
   if (g_recovery_ui_pending) {
-    logMessage("{\"error\":\"Hay recuperacion pendiente: use discard_recovery o resume confirm:true\"}");
+    logMessage("!E|recovery_pending");
     return false;
   }
 
