@@ -123,12 +123,19 @@ void motor_refresh_outputs(void) {
     cen_sm = 0;
 
   switch (f.funcion) {
+    case LLENADO_PRE_LAVADO:
     case LLENADO_LAVADO:
       llenado();
-      /* Alternar giro tambien mientras entra agua (mismo ciclo que LAVADO). */
-      lavado_apply_steady_outputs();
+      /* Sin agua: solo llenado, motor parado. Con agua: lavado por paso (no en paralelo con llenado). */
+      if (tamborVacio == 0) {
+        lavado_apply_steady_outputs();
+      } else {
+        digitalWrite(motor, HIGH);
+        digitalWrite(giro, HIGH);
+        digitalWrite(vel1, HIGH);
+        digitalWrite(vel2, HIGH);
+      }
       break;
-    case LLENADO_PRE_LAVADO:
     case LLENADO:
     case LLENADO_SUAVIZANTE:
       llenado();

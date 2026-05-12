@@ -24,6 +24,8 @@
  *   Rcode recuperacion UI: 0 ninguno 1 error 2 power_loss
  * Boot pendiente: R|rec|rcode|prog|fa|tf|mn|se|ec|ts  (rec=estado EEPROM)
  *
+ * LLENADO_PRE_LAVADO y LLENADO_LAVADO: solo llenado hasta presostato; con agua, lavado por paso.
+ *   Si se pierde el agua durante el agitado, nuevo llenado (timeout reiniciado), paso=0; REFILL LLPRL / LLLAV.
  * Depuracion monitor USB: DEBUG_UART_USB_LINES (1 por defecto) imprime cada linea \n recibida
  * por espSerial como [ESP RX] ... y por Serial como [USB RX] ... (no se reenvia al ESP).
  *
@@ -97,6 +99,8 @@ unsigned long g_last_eeprom_save_ms = 0;
 unsigned long g_fill_phase_start_ms = 0;
 bool g_fill_has_seen_full = false;
 int g_prev_fase_for_fill = -1;
+/** Ultimo tamborVacio en LLENADO_PRE_LAVADO / LLENADO_LAVADO (-1 = sin muestra). Flanco agua->vacio reabre llenado. */
+static int g_ll_fillwash_prev_tambor = -1;
 
 struct ErrorRingEntry {
   unsigned long t_ms;
@@ -139,6 +143,7 @@ static bool fase_es_llenado(uint8_t fn) {
 static void reset_fill_watch_for_phase_change(void) {
   g_fill_phase_start_ms = millis();
   g_fill_has_seen_full = false;
+  g_ll_fillwash_prev_tambor = -1;
 }
 
 static void save_checkpoint_runtime(uint8_t rec_state, uint8_t err_code) {
@@ -710,10 +715,34 @@ void loopLavadora()
   switch (fase.funcion) {
     case LLENADO_LAVADO:
       acelerado = 0;
-      if (tamborVacio == 0)
+      if (tamborVacio == 0) {
         g_fill_has_seen_full = true;
+      } else if (g_fill_has_seen_full && g_ll_fillwash_prev_tambor == 0) {
+        /* Se perdio el agua durante lavado en esta fase: nuevo llenado, parar ciclo de motor. */
+        g_fill_has_seen_full = false;
+        g_fill_phase_start_ms = millis();
+        paso = 0;
+        motor_reset_service_state();
+        logMessage("REFILL LLLAV");
+      }
+      g_ll_fillwash_prev_tambor = tamborVacio;
       break;
     case LLENADO_PRE_LAVADO:
+      acelerado = 0;
+      if (tamborVacio == 0) {
+        g_fill_has_seen_full = true;
+        minuto = minuto + 1;
+        segundos = 0;
+        logMessage("AVANCE TAMBOR LLENO");
+      } else if (g_fill_has_seen_full && g_ll_fillwash_prev_tambor == 0) {
+        g_fill_has_seen_full = false;
+        g_fill_phase_start_ms = millis();
+        paso = 0;
+        motor_reset_service_state();
+        logMessage("REFILL LLPRL");
+      }
+      g_ll_fillwash_prev_tambor = tamborVacio;
+      break;
     case LLENADO:
     case LLENADO_SUAVIZANTE:
       acelerado = 0;

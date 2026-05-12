@@ -11,6 +11,8 @@ extern int totalFases;
 extern int paso;
 extern int acelerado;
 extern int val1, giro, vel1, vel2, motor, bomba;
+/** 0 = presostato indica tambor con agua; 1 = sin agua (llenar). */
+extern int tamborVacio;
 
 void llenado(void);
 
