@@ -27,8 +27,20 @@ const FaseIndex programaCentrifugar[] = {
   {CENTRIFUGAR, 3}, {VACIADO, 1},
 };
 
+/* Mantenimiento: solo llenado (valvula segun presostato); parar con >STOP si llena antes. */
+const FaseIndex programaCargaAgua[] = {
+  {LLENADO, 45},
+};
+
+/* Solo agitado lavado (tambor con agua); parar manual si hace falta. */
+const FaseIndex programaSoloLavado[] = {
+  {LAVADO, 30},
+};
+
 static_assert(sizeof(programaLargo) / sizeof(FaseIndex) == LAV_FASES_LARGO, "LAV_FASES_LARGO");
 static_assert(sizeof(programaCorto) / sizeof(FaseIndex) == LAV_FASES_CORTO, "LAV_FASES_CORTO");
 static_assert(sizeof(programaVaciado) / sizeof(FaseIndex) == LAV_FASES_VACIADO, "LAV_FASES_VACIADO");
 static_assert(sizeof(programaCorto2) / sizeof(FaseIndex) == LAV_FASES_CORTO2, "LAV_FASES_CORTO2");
 static_assert(sizeof(programaCentrifugar) / sizeof(FaseIndex) == LAV_FASES_CENTRIF, "LAV_FASES_CENTRIF");
+static_assert(sizeof(programaCargaAgua) / sizeof(FaseIndex) == LAV_FASES_CARGA_AGUA, "LAV_FASES_CARGA_AGUA");
+static_assert(sizeof(programaSoloLavado) / sizeof(FaseIndex) == LAV_FASES_SOLO_LAVADO, "LAV_FASES_SOLO_LAVADO");

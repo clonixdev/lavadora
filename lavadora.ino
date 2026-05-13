@@ -11,12 +11,13 @@
 /*
  * UART wire (sin JSON), lineas terminadas en \n:
  * Comandos ESP->Arduino (prefijo '>'):
- *   >START,L|C|2|V|X  largo|corto|corto2|vaciado|centrifugar
+ *   >START,L|C|2|V|X|A|W  largo|corto|corto2|vaciado|centrifugar|carga_agua|solo_lavado
  *   >STOP   >DISCARD   >RESUME,0|1   >JABON   >J1|>J2|>J3   >PING (respuesta OK PONG; pitido corto en alarma)
  *   Linea UART por ESP con subcadena "OLAF" (p. ej. basura RX): pitido grave adicional (diagnostico).
  *   Parser: primer '>' en la linea (basura delante); cola solo espacios/control; >PING sin distinguir mayus/minus.
- * Estado Arduino->ESP (prefijo S|): 19 campos separados por |
- *   S|Enc|Fa|Tf|Tv|Mn|Se|Pa|Tt|Tr|Pid|Fcode|Rp|Rcode|Ec|E0|E1|E2|Rx|Besp
+ * Estado Arduino->ESP (prefijo S|): 21 campos separados por |
+ *   S|Enc|Fa|Tf|Tv|Mn|Se|Pa|Tt|Tr|Pid|Fcode|Rp|Rcode|Ec|E0|E1|E2|Rx|Besp|InAgua|InBloc
+ *   InAgua/InBloc: lectura digital pines feedback (A0/A3); 1=HIGH 0=LOW (INPUT_PULLUP: contacto a GND = 0).
  *   Besp: bytes leidos desde NeoSWSerial; sube con cualquier trafico en RX (comandos, eco S|, ruido).
  *   [diag] USB: tambien cuenta lineas completas S| vistas solo por espSerial (ver g_esp_s_pipe_rx_lines).
  *   Rx: lineas '>' recibidas por UART (cable ESP GPIO1/TX -> Arduino A1=D15, NeoSWSerial RX)
@@ -63,6 +64,10 @@ int tiempoTranscurrido = 0;
 int ultimoSegundoEnviado = -1;
 int ultimoSegundoLavadora = -1;
 int presostato = 17;
+/** Feedback hardware: carga/valvula entrada de agua encendida (optico, contacto aux. rele, etc.). */
+constexpr int pinSensorCargaAgua = A0;
+/** Feedback hardware: bloqueo de puerta energizado/enganchado. */
+constexpr int pinSensorBloqueoPuerta = A3;
 int val1 = 8;     // VALVULA DE ENTRADA DE AGUA
 int giro = 5;     // GIRO DEL MOTOR
 int vel1 = 6;     // VELOCIDAD DE MOTOR
@@ -80,6 +85,9 @@ int jabPosLavandina = 1350;
 static int last_jab_servo_angle = -1;
 
 int tamborVacio = 0;
+/** Ultima lectura digital de los sensores de feedback (0/1). */
+int g_sensor_carga_agua = 0;
+int g_sensor_bloqueo_puerta = 0;
 int tiempoTotal = 0;
 int tiempoStart = 0;
 int tiempoEnd = 0;
@@ -124,6 +132,8 @@ void setProgramaCorto(void);
 void setProgramaVaciado(void);
 void setProgramaCorto2(void);
 void setProgramaCentrifugar(void);
+void setProgramaCargaAgua(void);
+void setProgramaSoloLavado(void);
 void calcTiempoTotal(void);
 static void processCommandLine(const char* line);
 static void processCommandLineFromEsp(const char* line);
@@ -189,6 +199,8 @@ static uint8_t total_fases_for_programa_id(int p) {
     case 3: return (uint8_t)LAV_FASES_VACIADO;
     case 4: return (uint8_t)LAV_FASES_CORTO2;
     case 5: return (uint8_t)LAV_FASES_CENTRIF;
+    case 6: return (uint8_t)LAV_FASES_CARGA_AGUA;
+    case 7: return (uint8_t)LAV_FASES_SOLO_LAVADO;
     default: return 0;
   }
 }
@@ -217,6 +229,8 @@ static void trigger_error_checkpoint(uint8_t err_code, const char* json_line) {
   llenadoError = 1;
   encendida = false;
   hasError = true;
+  paso = 0;
+  contador = 0;
   errorbuzzerPWM();
   logMessage(json_line);
 }
@@ -247,6 +261,10 @@ static bool restore_from_checkpoint(const WashCheckpoint* cp, bool ack_centrifug
     setProgramaCorto2();
   else if (cp->programa == 5)
     setProgramaCentrifugar();
+  else if (cp->programa == 6)
+    setProgramaCargaAgua();
+  else if (cp->programa == 7)
+    setProgramaSoloLavado();
   else
     return false;
 
@@ -317,6 +335,8 @@ void setup()
 
   // CONFIGURAMOS LOS PINES DE SALIDA NECESARIOS PARA NUESTRA LAVADORA
   pinMode(presostato, INPUT);
+  pinMode(pinSensorCargaAgua, INPUT_PULLUP);
+  pinMode(pinSensorBloqueoPuerta, INPUT_PULLUP);
   pinMode(val1, OUTPUT);
   pinMode(giro, OUTPUT);
   pinMode(vel1, OUTPUT);
@@ -395,6 +415,8 @@ void calcTiempoTotal()
     case 3: length = LAV_FASES_VACIADO; break;
     case 4: length = LAV_FASES_CORTO2; break;
     case 5: length = LAV_FASES_CENTRIF; break;
+    case 6: length = LAV_FASES_CARGA_AGUA; break;
+    case 7: length = LAV_FASES_SOLO_LAVADO; break;
   }
 
   tiempoTotal = 0;
@@ -530,6 +552,10 @@ void loopTimer()
     hora = millis();
     digitalWrite(LED_BUILTIN, led);
     led = !led;
+
+    if (!encendida)
+      return;
+
     contador = contador + 1;
     segundos = segundos + 1;
 
@@ -618,6 +644,8 @@ void loop()
   processCommand();
 
   tamborVacio = digitalRead(presostato);
+  g_sensor_carga_agua = digitalRead(pinSensorCargaAgua) ? 1 : 0;
+  g_sensor_bloqueo_puerta = digitalRead(pinSensorBloqueoPuerta) ? 1 : 0;
 
   loopTimer();
 
@@ -649,15 +677,16 @@ void logMessage(const char* msg) {
 void serialSendStatus()
 {
   int tiempoRestante = tiempoTotal - tiempoTranscurrido;
-  char buf[200];
+  char buf[220];
   snprintf(buf, sizeof(buf),
-           "S|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%u|%d|%u|%u|%u|%u|%u|%u|%lu\n",
+           "S|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%u|%d|%u|%u|%u|%u|%u|%u|%lu|%d|%d\n",
            encendida ? 1 : 0, faseActual, totalFases, tamborVacio, minuto, segundos, paso,
            tiempoTotal, tiempoRestante, programa, (unsigned)nombre_fase_actual_code(),
            g_recovery_ui_pending ? 1 : 0, (unsigned)recovery_reason_wire_code(),
            (unsigned)g_last_error_code, (unsigned)g_err_ring[0].code,
            (unsigned)g_err_ring[1].code, (unsigned)g_err_ring[2].code,
-           (unsigned)g_uart_cmd_rx_count, (unsigned long)g_esp_soft_rx_bytes);
+           (unsigned)g_uart_cmd_rx_count, (unsigned long)g_esp_soft_rx_bytes,
+           g_sensor_carga_agua, g_sensor_bloqueo_puerta);
   Serial.println(buf);
   espSerial.println(buf);
 #if DEBUG_UART_USB_LINES
@@ -689,6 +718,8 @@ void loopLavadora()
   if (faseActual >= totalFases) {
     logMessage("FINAL");
     encendida = false;
+    paso = 0;
+    contador = 0;
     checkpoint_clear();
     g_recovery_ui_pending = false;
     g_recovery_reason[0] = '\0';
@@ -914,6 +945,8 @@ static void processCommandLine(const char* line)
       case '2': prog = "corto2"; break;
       case 'V': prog = "vaciado"; break;
       case 'X': prog = "centrifugar"; break;
+      case 'A': prog = "carga_agua"; break;
+      case 'W': prog = "solo_lavado"; break;
       default:
         logMessage("!E|badprog");
         return;
@@ -1004,6 +1037,14 @@ bool startLavadora(const char* programa)
   {
     setProgramaCentrifugar();
   }
+  else if (strcmp(programa, "carga_agua") == 0)
+  {
+    setProgramaCargaAgua();
+  }
+  else if (strcmp(programa, "solo_lavado") == 0)
+  {
+    setProgramaSoloLavado();
+  }
   else
   {
     setProgramaLargo();
@@ -1022,6 +1063,8 @@ bool startLavadora(const char* programa)
 void stopLavadora()
 {
   encendida = 0;
+  paso = 0;
+  contador = 0;
   checkpoint_clear();
   g_recovery_ui_pending = false;
   g_recovery_reason[0] = '\0';
@@ -1075,4 +1118,18 @@ void setProgramaCentrifugar()
   programa = 5;
   fases = programaCentrifugar;
   totalFases = LAV_FASES_CENTRIF;
+}
+
+void setProgramaCargaAgua()
+{
+  programa = 6;
+  fases = programaCargaAgua;
+  totalFases = LAV_FASES_CARGA_AGUA;
+}
+
+void setProgramaSoloLavado()
+{
+  programa = 7;
+  fases = programaSoloLavado;
+  totalFases = LAV_FASES_SOLO_LAVADO;
 }

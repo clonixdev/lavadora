@@ -18,7 +18,7 @@ substitutions:
 # con mas pasadas para NeoSWSerial. Si [ESP RX] muestra texto ilegible (no ">..."), el fallo es
 # framing/baud o buffer desbordado, no el strcmp del comando.
 #
-# UART0 del ESP8266 puede alternar a otros pines (doc ESPHome); en ESP-01 suelen salir GPIO1/GPIO3.
+#   InAgua/InBloc: feedback digital Arduino A0 (carga agua) y A3 (bloqueo puerta); sin cable = 1 (pull-up).
 
 esphome:
   name: atalaya06
@@ -133,9 +133,10 @@ uart:
             return;
           int enc, fa, tf, tv, mn, se, pa, tt, tr, pid, fcode, rp, rcode, ec, e0, e1, e2, urx;
           unsigned besp;
+          int in_agua, in_bloqueo;
           if (sscanf(data.c_str(),
-                       "S|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%u",
-                       &enc, &fa, &tf, &tv, &mn, &se, &pa, &tt, &tr, &pid, &fcode, &rp, &rcode, &ec, &e0, &e1, &e2, &urx, &besp) != 19)
+                       "S|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%u|%d|%d",
+                       &enc, &fa, &tf, &tv, &mn, &se, &pa, &tt, &tr, &pid, &fcode, &rp, &rcode, &ec, &e0, &e1, &e2, &urx, &besp, &in_agua, &in_bloqueo) != 21)
             return;
           UARTDebug::log_string(direction, bytes);
           id(fase).publish_state(fase_from_code(fcode));
@@ -157,7 +158,8 @@ uart:
             case 3: pn = "Vaciado"; break;
             case 4: pn = "Corto 2"; break;
             case 5: pn = "Centrifugar"; break;
-            default: break;
+            case 6: pn = "Solo carga agua"; break;
+            case 7: pn = "Solo lavado"; break;
           }
           id(programa_nombre).publish_state(pn);
           id(recovery_pending).publish_state(rp != 0);
@@ -173,6 +175,8 @@ uart:
           id(err_ring_2).publish_state(e2);
           id(uart_cmd_rx).publish_state(urx);
           id(uart_soft_rx_bytes).publish_state(besp);
+          id(fb_carga_agua).publish_state(in_agua != 0);
+          id(fb_bloqueo_puerta).publish_state(in_bloqueo != 0);
           if (tf > 0) {
             float pct = 100.0f * (float) fa / (float) tf;
             if (pct > 100.0f)
@@ -186,7 +190,7 @@ uart:
             id(estado_resumen).publish_state(buf);
           }
 
-# --- Controles principales (lavado) ---
+# --- Controles principales (lavado, parada, reanudar / descartar recuperación) ---
 # platform: uart envia bytes al bus (template+uart.write no disparaba TX en ESPHome 2025.x).
 button:
   - platform: uart
@@ -216,29 +220,34 @@ button:
     data: ">START,X\n"
   - platform: uart
     uart_id: uart_bus
-    name: "Parar lavadora"
-    icon: mdi:stop-circle
-    data: ">STOP\n"
-
-# --- Recuperación tras corte / error ---
+    name: "Solo carga de agua"
+    icon: mdi:water-plus
+    data: ">START,A\n"
+  - platform: uart
+    uart_id: uart_bus
+    name: "Solo lavado"
+    icon: mdi:waves
+    data: ">START,W\n"
   - platform: uart
     uart_id: uart_bus
     name: "Reanudar ciclo (confirmar)"
     icon: mdi:play-circle
-    entity_category: config
     data: ">RESUME,0\n"
   - platform: uart
     uart_id: uart_bus
     name: "Reanudar con centrifugado confirmado"
     icon: mdi:rotate-orbit
-    entity_category: config
     data: ">RESUME,1\n"
   - platform: uart
     uart_id: uart_bus
     name: "Descartar recuperación"
     icon: mdi:backup-restore
-    entity_category: config
     data: ">DISCARD\n"
+  - platform: uart
+    uart_id: uart_bus
+    name: "Parar lavadora"
+    icon: mdi:stop-circle
+    data: ">STOP\n"
 
 # --- Mantenimiento jabonera ---
   - platform: uart
@@ -291,6 +300,8 @@ select:
       - "Corto 2"
       - "Vaciado"
       - "Centrifugar"
+      - "Solo carga de agua"
+      - "Solo lavado"
     initial_option: "---"
     set_action:
       - delay: 15ms
@@ -307,6 +318,8 @@ select:
                   else if (v == "Corto 2") c = '2';
                   else if (v == "Vaciado") c = 'V';
                   else if (v == "Centrifugar") c = 'X';
+                  else if (v == "Solo carga de agua") c = 'A';
+                  else if (v == "Solo lavado") c = 'W';
                   else if (v == "Largo") c = 'L';
                   std::string out = std::string(">START,") + c + "\n";
                   return std::vector<uint8_t>(out.begin(), out.end());
@@ -444,6 +457,16 @@ binary_sensor:
     name: "Tambor lleno (presostato)"
     id: tambor_lleno
     icon: mdi:water-check
+  - platform: template
+    name: "Carga agua activa (feedback A0)"
+    id: fb_carga_agua
+    icon: mdi:water-plus
+    device_class: running
+  - platform: template
+    name: "Bloqueo puerta activo (feedback A3)"
+    id: fb_bloqueo_puerta
+    icon: mdi:door-closed-lock
+    device_class: lock
 
 text_sensor:
   - platform: template

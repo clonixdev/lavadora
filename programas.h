@@ -14,6 +14,12 @@ static inline const FaseIndex* getPrograma(void) {
     return programaVaciado;
   if (programa == 4)
     return programaCorto2;
+  if (programa == 5)
+    return programaCentrifugar;
+  if (programa == 6)
+    return programaCargaAgua;
+  if (programa == 7)
+    return programaSoloLavado;
   return programaLargo;
 }
 

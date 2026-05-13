@@ -25,11 +25,15 @@ extern const FaseIndex programaCorto2[];
 extern const FaseIndex programaCorto[];
 extern const FaseIndex programaVaciado[];
 extern const FaseIndex programaCentrifugar[];
+extern const FaseIndex programaCargaAgua[];
+extern const FaseIndex programaSoloLavado[];
 
 #define LAV_FASES_LARGO 17
 #define LAV_FASES_CORTO 16
 #define LAV_FASES_VACIADO 1
 #define LAV_FASES_CORTO2 8
 #define LAV_FASES_CENTRIF 2
+#define LAV_FASES_CARGA_AGUA 1
+#define LAV_FASES_SOLO_LAVADO 1
 
 #endif
