@@ -8,31 +8,39 @@ void motor_reset_service_state(void) {
   cen_deadline = 0;
 }
 
+/* Agitado: paso 0/2 giro 5s, paso 1/3 pausa 3s (duraciones en lavadora.ino LAVADO_PASO_DUR_SEC). */
 static void lavado_apply_steady_outputs(void) {
+  if (paso < 0 || paso >= 4)
+    paso = 0;
+
   switch (paso) {
     case 0:
-      digitalWrite(motor, HIGH);
       digitalWrite(vel1, HIGH);
       digitalWrite(vel2, HIGH);
       digitalWrite(bomba, HIGH);
+      digitalWrite(giro, HIGH);
+      digitalWrite(motor, LOW);
       break;
     case 1:
       digitalWrite(motor, HIGH);
-      digitalWrite(giro, HIGH);
       break;
     case 2:
-      digitalWrite(giro, HIGH);
+      digitalWrite(vel1, HIGH);
+      digitalWrite(vel2, HIGH);
+      digitalWrite(bomba, HIGH);
+      digitalWrite(giro, LOW);
       digitalWrite(motor, LOW);
       break;
     case 3:
       digitalWrite(motor, HIGH);
-      digitalWrite(giro, LOW);
-      break;
-    case 4:
-      digitalWrite(giro, LOW);
-      digitalWrite(motor, LOW);
       break;
     default:
+      paso = 0;
+      digitalWrite(vel1, HIGH);
+      digitalWrite(vel2, HIGH);
+      digitalWrite(bomba, HIGH);
+      digitalWrite(giro, HIGH);
+      digitalWrite(motor, LOW);
       break;
   }
 }

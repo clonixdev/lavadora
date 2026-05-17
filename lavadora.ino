@@ -51,10 +51,13 @@ bool encendida = false;
 bool hasError = false;
 unsigned long hora = 0;
 const int intervalo = 1000;
-int contador = 0;
 int segundos = 0;
 int minuto = 0;
-int paso = 0;   // REGISTRO DE PASO PARA EL LAVADO Y EL CICLO DE ACELERACION DEL TANQUE
+/** Subciclo agitado: 0=giroA 5s, 1=pausa 3s, 2=giroB 5s, 3=pausa 3s (ver LAVADO_PASO_DUR_SEC). */
+int paso = 0;
+#define LAVADO_PASOS 4
+static const uint8_t LAVADO_PASO_DUR_SEC[LAVADO_PASOS] = {5, 3, 5, 3};
+uint8_t paso_seg = 0;
 int sttone = 0; // TONO INICIAL
 #if USE_JABONERA_SERVO
 Servo jabservo;
@@ -168,6 +171,7 @@ static void save_checkpoint_runtime(uint8_t rec_state, uint8_t err_code) {
   if (segundos < 0) segundos = 0;
   if (segundos > 255) segundos = 255;
   if (paso < 0) paso = 0;
+  if (paso >= LAVADO_PASOS) paso = 0;
   if (paso > 255) paso = 255;
   cp.minuto = (uint8_t)minuto;
   cp.segundos = (uint8_t)segundos;
@@ -230,7 +234,7 @@ static void trigger_error_checkpoint(uint8_t err_code, const char* json_line) {
   encendida = false;
   hasError = true;
   paso = 0;
-  contador = 0;
+  paso_seg = 0;
   errorbuzzerPWM();
   logMessage(json_line);
 }
@@ -278,12 +282,14 @@ static bool restore_from_checkpoint(const WashCheckpoint* cp, bool ack_centrifug
   minuto = cp->minuto;
   segundos = cp->segundos;
   paso = cp->paso;
+  if (paso < 0 || paso >= LAVADO_PASOS)
+    paso = 0;
+  paso_seg = 0;
   acelerado = cp->acelerado ? 1 : 0;
   sttone = cp->sttone ? 1 : 0;
   tiempoTranscurrido = (int)cp->tiempoTranscurrido;
   llenadoError = 0;
   hora = millis();
-  contador = 0;
   ultimoSegundoLavadora = -1;
   ultimoSegundoEnviado = -1;
 
@@ -556,7 +562,6 @@ void loopTimer()
     if (!encendida)
       return;
 
-    contador = contador + 1;
     segundos = segundos + 1;
 
     if (segundos == 60)
@@ -565,15 +570,13 @@ void loopTimer()
       segundos = 0;
       tiempoTranscurrido++; 
     }
-    if (contador == 3)
-    {
-      contador = 0;
-      paso = paso + 1;
-    }
 
-    if (paso > 20)
-    {
-      paso = 0;
+    paso_seg++;
+    if (paso_seg >= LAVADO_PASO_DUR_SEC[paso]) {
+      paso_seg = 0;
+      paso++;
+      if (paso >= LAVADO_PASOS)
+        paso = 0;
     }
   }
 }
@@ -719,7 +722,7 @@ void loopLavadora()
     logMessage("FINAL");
     encendida = false;
     paso = 0;
-    contador = 0;
+    paso_seg = 0;
     checkpoint_clear();
     g_recovery_ui_pending = false;
     g_recovery_reason[0] = '\0';
@@ -753,6 +756,7 @@ void loopLavadora()
         g_fill_has_seen_full = false;
         g_fill_phase_start_ms = millis();
         paso = 0;
+        paso_seg = 0;
         motor_reset_service_state();
         logMessage("REFILL LLLAV");
       }
@@ -769,6 +773,7 @@ void loopLavadora()
         g_fill_has_seen_full = false;
         g_fill_phase_start_ms = millis();
         paso = 0;
+        paso_seg = 0;
         motor_reset_service_state();
         logMessage("REFILL LLPRL");
       }
@@ -804,6 +809,7 @@ void loopLavadora()
     minuto = 0;
     faseActual++;
     paso = 0;
+    paso_seg = 0;
     segundos = 0;
     if (faseActual < totalFases)
       setJabonera();
@@ -1064,7 +1070,7 @@ void stopLavadora()
 {
   encendida = 0;
   paso = 0;
-  contador = 0;
+  paso_seg = 0;
   checkpoint_clear();
   g_recovery_ui_pending = false;
   g_recovery_reason[0] = '\0';
@@ -1074,7 +1080,7 @@ void stopLavadora()
 void resetTimer()
 {
 
-  contador = 0;
+  paso_seg = 0;
   segundos = 0;
   minuto = 0;
   hora = 0;
