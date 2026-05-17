@@ -20,6 +20,8 @@ static inline const FaseIndex* getPrograma(void) {
     return programaCargaAgua;
   if (programa == 7)
     return programaSoloLavado;
+  if (programa == 8)
+    return programaMini;
   return programaLargo;
 }
 

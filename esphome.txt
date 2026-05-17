@@ -160,6 +160,7 @@ uart:
             case 5: pn = "Centrifugar"; break;
             case 6: pn = "Solo carga agua"; break;
             case 7: pn = "Solo lavado"; break;
+            case 8: pn = "Mini"; break;
           }
           id(programa_nombre).publish_state(pn);
           id(recovery_pending).publish_state(rp != 0);
@@ -228,6 +229,11 @@ button:
     name: "Solo lavado"
     icon: mdi:waves
     data: ">START,W\n"
+  - platform: uart
+    uart_id: uart_bus
+    name: "Iniciar programa mini"
+    icon: mdi:washing-machine
+    data: ">START,M\n"
   - platform: uart
     uart_id: uart_bus
     name: "Reanudar ciclo (confirmar)"
@@ -302,6 +308,7 @@ select:
       - "Centrifugar"
       - "Solo carga de agua"
       - "Solo lavado"
+      - "Mini"
     initial_option: "---"
     set_action:
       - delay: 15ms
@@ -320,6 +327,7 @@ select:
                   else if (v == "Centrifugar") c = 'X';
                   else if (v == "Solo carga de agua") c = 'A';
                   else if (v == "Solo lavado") c = 'W';
+                  else if (v == "Mini") c = 'M';
                   else if (v == "Largo") c = 'L';
                   std::string out = std::string(">START,") + c + "\n";
                   return std::vector<uint8_t>(out.begin(), out.end());

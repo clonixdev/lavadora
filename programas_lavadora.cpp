@@ -37,6 +37,10 @@ const FaseIndex programaSoloLavado[] = {
   {LAVADO, 30},
 };
 
+const FaseIndex programaMini[] = {
+  {LLENADO, 3}, {LAVADO, 5}, {VACIADO, 1}, {CENTRIFUGAR, 3},
+};
+
 static_assert(sizeof(programaLargo) / sizeof(FaseIndex) == LAV_FASES_LARGO, "LAV_FASES_LARGO");
 static_assert(sizeof(programaCorto) / sizeof(FaseIndex) == LAV_FASES_CORTO, "LAV_FASES_CORTO");
 static_assert(sizeof(programaVaciado) / sizeof(FaseIndex) == LAV_FASES_VACIADO, "LAV_FASES_VACIADO");
@@ -44,3 +48,4 @@ static_assert(sizeof(programaCorto2) / sizeof(FaseIndex) == LAV_FASES_CORTO2, "L
 static_assert(sizeof(programaCentrifugar) / sizeof(FaseIndex) == LAV_FASES_CENTRIF, "LAV_FASES_CENTRIF");
 static_assert(sizeof(programaCargaAgua) / sizeof(FaseIndex) == LAV_FASES_CARGA_AGUA, "LAV_FASES_CARGA_AGUA");
 static_assert(sizeof(programaSoloLavado) / sizeof(FaseIndex) == LAV_FASES_SOLO_LAVADO, "LAV_FASES_SOLO_LAVADO");
+static_assert(sizeof(programaMini) / sizeof(FaseIndex) == LAV_FASES_MINI, "LAV_FASES_MINI");

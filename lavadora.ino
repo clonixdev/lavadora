@@ -11,7 +11,7 @@
 /*
  * UART wire (sin JSON), lineas terminadas en \n:
  * Comandos ESP->Arduino (prefijo '>'):
- *   >START,L|C|2|V|X|A|W  largo|corto|corto2|vaciado|centrifugar|carga_agua|solo_lavado
+ *   >START,L|C|2|V|X|A|W|M  largo|corto|corto2|vaciado|centrifugar|carga_agua|solo_lavado|mini
  *   >STOP   >DISCARD   >RESUME,0|1   >JABON   >J1|>J2|>J3   >PING (respuesta OK PONG; pitido corto en alarma)
  *   Linea UART por ESP con subcadena "OLAF" (p. ej. basura RX): pitido grave adicional (diagnostico).
  *   Parser: primer '>' en la linea (basura delante); cola solo espacios/control; >PING sin distinguir mayus/minus.
@@ -137,6 +137,7 @@ void setProgramaCorto2(void);
 void setProgramaCentrifugar(void);
 void setProgramaCargaAgua(void);
 void setProgramaSoloLavado(void);
+void setProgramaMini(void);
 void calcTiempoTotal(void);
 static void processCommandLine(const char* line);
 static void processCommandLineFromEsp(const char* line);
@@ -205,6 +206,7 @@ static uint8_t total_fases_for_programa_id(int p) {
     case 5: return (uint8_t)LAV_FASES_CENTRIF;
     case 6: return (uint8_t)LAV_FASES_CARGA_AGUA;
     case 7: return (uint8_t)LAV_FASES_SOLO_LAVADO;
+    case 8: return (uint8_t)LAV_FASES_MINI;
     default: return 0;
   }
 }
@@ -269,6 +271,8 @@ static bool restore_from_checkpoint(const WashCheckpoint* cp, bool ack_centrifug
     setProgramaCargaAgua();
   else if (cp->programa == 7)
     setProgramaSoloLavado();
+  else if (cp->programa == 8)
+    setProgramaMini();
   else
     return false;
 
@@ -423,6 +427,7 @@ void calcTiempoTotal()
     case 5: length = LAV_FASES_CENTRIF; break;
     case 6: length = LAV_FASES_CARGA_AGUA; break;
     case 7: length = LAV_FASES_SOLO_LAVADO; break;
+    case 8: length = LAV_FASES_MINI; break;
   }
 
   tiempoTotal = 0;
@@ -956,6 +961,7 @@ static void processCommandLine(const char* line)
       case 'X': prog = "centrifugar"; break;
       case 'A': prog = "carga_agua"; break;
       case 'W': prog = "solo_lavado"; break;
+      case 'M': prog = "mini"; break;
       default:
         logMessage("!E|badprog");
         return;
@@ -1054,6 +1060,10 @@ bool startLavadora(const char* programa)
   {
     setProgramaSoloLavado();
   }
+  else if (strcmp(programa, "mini") == 0)
+  {
+    setProgramaMini();
+  }
   else
   {
     setProgramaLargo();
@@ -1141,4 +1151,11 @@ void setProgramaSoloLavado()
   programa = 7;
   fases = programaSoloLavado;
   totalFases = LAV_FASES_SOLO_LAVADO;
+}
+
+void setProgramaMini()
+{
+  programa = 8;
+  fases = programaMini;
+  totalFases = LAV_FASES_MINI;
 }
