@@ -571,6 +571,9 @@ void loopTimer()
       tiempoTranscurrido++; 
     }
 
+    if (paso < 0 || paso >= LAVADO_PASOS)
+      paso = 0;
+
     paso_seg++;
     if (paso_seg >= LAVADO_PASO_DUR_SEC[paso]) {
       paso_seg = 0;
